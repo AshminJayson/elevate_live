@@ -32,12 +32,15 @@ from pathlib import Path
 from bitforge.config import load_settings
 
 
-def _ensure_tmux(session, cols, rows):
+def _ensure_tmux(session, cols, rows, start_dir):
     """Create the tmux session at an initial cols x rows, with the host driving size.
 
     Algorithm:
         1. Create the session detached at cols x rows if it does not exist (a sane
-           default size for viewers before anyone attaches interactively).
+           default size for viewers before anyone attaches interactively), rooted
+           at start_dir via `-c` so the terminal opens in the broadcast project
+           rather than wherever `make up` happened to be launched. The flag only
+           applies on creation; an existing session keeps its own directory.
         2. Set window-size to 'largest'. Verified behavior: the interactive
            read-write client (the host's own `tmux attach`) drives the window
            size, while read-only ttyd viewer clients never shrink OR grow it.
@@ -49,6 +52,9 @@ def _ensure_tmux(session, cols, rows):
         session (str): tmux session name.
         cols (int): initial terminal width.
         rows (int): initial terminal height.
+        start_dir (Path | str): absolute directory the session starts in
+            (config.source_dir), so the viewed terminal matches the broadcast
+            file tree. tmux fails loudly if it does not exist.
 
     Returns:
         None
@@ -56,7 +62,8 @@ def _ensure_tmux(session, cols, rows):
     exists = subprocess.run(["tmux", "has-session", "-t", session]).returncode == 0
     if not exists:
         subprocess.run(
-            ["tmux", "new-session", "-d", "-s", session, "-x", str(cols), "-y", str(rows)],
+            ["tmux", "new-session", "-d", "-s", session,
+             "-x", str(cols), "-y", str(rows), "-c", str(start_dir)],
             check=True,
         )
     subprocess.run(["tmux", "set-option", "-t", session, "window-size", "largest"], check=True)
@@ -183,7 +190,7 @@ def main():
 
     _require_binaries(["tmux", "ttyd", "ngrok"])
 
-    _ensure_tmux(cfg.tmux_session, cfg.cols, cfg.rows)
+    _ensure_tmux(cfg.tmux_session, cfg.cols, cfg.rows, cfg.source_dir)
 
     # One append-mode log file collects the firehose from the noisy children
     # (ttyd, broadcaster, ngrok) so the host's console stays clean. The
