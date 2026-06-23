@@ -25,6 +25,14 @@ def test_teacher_bad_token_rejected(tmp_path):
             pass
 
 
+def test_teacher_empty_config_token_rejected(tmp_path):
+    app = create_app(_config(tmp_path, token=""))
+    client = TestClient(app)
+    with pytest.raises(Exception):
+        with client.websocket_connect("/ws/teacher?token="):
+            pass
+
+
 def test_teacher_broadcast_reaches_student(tmp_path):
     app = create_app(_config(tmp_path))
     client = TestClient(app)

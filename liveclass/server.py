@@ -20,6 +20,7 @@ class State:
     """
 
     def __init__(self):
+        """Initialize empty broadcast state (no tree, no file, no students)."""
         self.current_tree = []
         self.current_file = None
         self.students = set()
@@ -61,6 +62,16 @@ def create_app(config=None):
 
     @app.websocket("/ws/teacher")
     async def teacher(ws: WebSocket, token: str = ""):
+        """Authenticate teacher and broadcast state updates to all students.
+
+        Validates token (rejects on empty config.token or mismatch with 1008),
+        then loops receiving JSON, updating State (tree/file) and broadcasting
+        to students, removing dead sockets, exiting cleanly on disconnect.
+
+        Args:
+            ws (WebSocket): the teacher connection.
+            token (str): query parameter token to validate against config.token.
+        """
         if not config.token or token != config.token:
             await ws.close(code=status.WS_1008_POLICY_VIOLATION)
             return
@@ -79,6 +90,15 @@ def create_app(config=None):
 
     @app.websocket("/ws/student")
     async def student(ws: WebSocket):
+        """Accept student, send current state, then drain receive-only until disconnect.
+
+        Accepts, registers the socket, sends current tree then current file
+        (late-joiner state), then drains receive-only until disconnect,
+        discarding the socket in finally.
+
+        Args:
+            ws (WebSocket): the student connection.
+        """
         await ws.accept()
         state = app.state.live
         state.students.add(ws)
