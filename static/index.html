@@ -100,7 +100,8 @@
         browsing = true;
         document.getElementById("livebar").classList.add("show");
         const ext = path.split(".").pop();
-        const lang = { py: "python", js: "javascript", ts: "typescript", json: "json", html: "html", css: "css", md: "markdown", toml: "ini", // Monaco has no toml grammar; ini is the closest available yaml: "yaml", yml: "yaml" }[ext] || "plaintext";
+        // Monaco has no toml grammar; ini is the closest available.
+        const lang = { py: "python", js: "javascript", ts: "typescript", json: "json", html: "html", css: "css", md: "markdown", toml: "ini", yaml: "yaml", yml: "yaml" }[ext] || "plaintext";
         showFile({ path, language: lang, content });
       }
 

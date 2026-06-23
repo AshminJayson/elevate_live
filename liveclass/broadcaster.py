@@ -169,16 +169,42 @@ async def run(config):
         try:
             async with websockets.connect(url) as ws:
                 await ws.send(_json(make_tree_message(config.lesson_dir, config.ignore)))
-                while True:
-                    kind, rel = await queue.get()
-                    await asyncio.sleep(0.1)  # debounce
-                    while not queue.empty():
-                        queue.get_nowait()
-                    if kind == "file":
-                        msg = make_file_message(config.lesson_dir, rel, config.ignore)
-                        if msg is not None:
-                            await ws.send(_json(msg))
-                    await ws.send(_json(make_tree_message(config.lesson_dir, config.ignore)))
+
+                async def _pump():
+                    """Drain debounced change events, pushing file/tree messages forever."""
+                    while True:
+                        kind, rel = await queue.get()
+                        await asyncio.sleep(0.1)  # debounce
+                        while not queue.empty():
+                            queue.get_nowait()
+                        if kind == "file":
+                            msg = make_file_message(config.lesson_dir, rel, config.ignore)
+                            if msg is not None:
+                                await ws.send(_json(msg))
+                        await ws.send(_json(make_tree_message(config.lesson_dir, config.ignore)))
+
+                async def _watch_closed():
+                    """Return (or raise) when the teacher socket closes; the teacher
+                    receives nothing, so iterating the socket simply blocks until the
+                    connection drops. This makes an idle disconnect trigger a reconnect
+                    instead of leaving the pump blocked on an empty queue forever."""
+                    async for _ in ws:
+                        pass
+
+                pump_task = asyncio.ensure_future(_pump())
+                watch_task = asyncio.ensure_future(_watch_closed())
+                done, pending = await asyncio.wait(
+                    {pump_task, watch_task}, return_when=asyncio.FIRST_COMPLETED
+                )
+                for task in pending:
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                for task in done:
+                    task.result()  # re-raise a pump send error if that is what completed
+                raise ConnectionError("teacher socket closed")  # watch completed -> reconnect
         except Exception as exc:  # surface loudly, then retry
             print(f"[broadcaster] connection lost: {exc!r}; retrying in 2s")
             await asyncio.sleep(2)

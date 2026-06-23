@@ -14,8 +14,10 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
 from liveclass.config import Config, load_config
 
-TTYD_HTTP = "http://127.0.0.1:7681"
-TTYD_WS = "ws://127.0.0.1:7681/ws"
+# ttyd runs with base path -b /terminal (see run.py), so it serves its page,
+# token, and websocket under /terminal/. The proxy must preserve that prefix.
+TTYD_HTTP = "http://127.0.0.1:7681/terminal"
+TTYD_WS = "ws://127.0.0.1:7681/terminal/ws"
 _STATIC = Path(__file__).resolve().parent.parent / "static"
 
 

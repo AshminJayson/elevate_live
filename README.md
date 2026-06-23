@@ -24,6 +24,15 @@ Edit files under `./lesson/`; saves broadcast to students.
 Students open the ngrok URL: explorer + live code + read-only terminal,
 all selectable/copyable.
 
+## Access control
+
+The ngrok URL is the only access control. Every student route (`/`,
+`/ws/student`, `/file`, `/terminal`) is unauthenticated by design — anyone
+with the URL can view the broadcast. `LIVECLASS_TOKEN` gates only the
+teacher/broadcaster connection (`/ws/teacher`), not student access. Share the
+URL only with your class, and treat it as a secret: keep real secrets out of
+`./lesson/` (everything there is broadcast verbatim).
+
 ## Config
 
 Edit `liveclass.toml` any time (hot-reloaded): `ignore` list, terminal
