@@ -43,7 +43,7 @@ class Config:
     token: str
 
 
-def load_config(path, token=None):
+def load_config(path: str | Path, token: str | None = None) -> Config:
     """Load and resolve configuration from a TOML file.
 
     Algorithm:
@@ -60,7 +60,7 @@ def load_config(path, token=None):
     Returns:
         Config: the resolved configuration.
     """
-    data = tomllib.loads(Path(path).read_text())
+    data = tomllib.loads(Path(path).read_text(encoding="utf-8"))
     broadcast = data.get("broadcast", {})
     terminal = data.get("terminal", {})
     resolved_token = token if token is not None else os.environ.get("LIVECLASS_TOKEN", "")
@@ -75,7 +75,7 @@ def load_config(path, token=None):
     )
 
 
-def is_ignored(rel_path, ignore_patterns):
+def is_ignored(rel_path: str, ignore_patterns: list[str]) -> bool:
     """Return True if a POSIX-relative path matches any ignore pattern.
 
     Algorithm:
