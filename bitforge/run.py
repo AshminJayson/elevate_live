@@ -1,30 +1,37 @@
-"""Supervisor: launches tmux, ttyd, the server, the broadcaster, and ngrok.
+"""Supervisor: launches tmux, ttyd, the server, the broadcaster, and a tunnel.
 
 Algorithm:
     1. Load config; ensure a tmux session sized to cols x rows exists.
     2. Start ttyd (read-only) attached to that session under base path /terminal.
     3. Start the server (python -m bitforge.serve) with split console/file logging.
     4. Start the broadcaster (python -m bitforge.broadcaster).
-    5. Start ngrok against :8000 using BITFORGE_NGROK_DOMAIN if set.
+    5. Start the public tunnel against :8000 -- cloudflared if
+       BITFORGE_CLOUDFLARED_TOKEN is set, otherwise ngrok (honouring
+       BITFORGE_NGROK_DOMAIN).
     6. Wait; on Ctrl-C, terminate all children.
 
-The console is kept quiet: ttyd, the broadcaster, and ngrok have their output
-redirected into the detailed log file (cfg.log_file), and only the server
-inherits this terminal so its periodic "viewers online" heartbeat shows.
+The console is kept quiet: ttyd, the broadcaster, and the tunnel have their
+output redirected into the detailed log file (cfg.log_file), and only the
+server inherits this terminal so its periodic "viewers online" heartbeat shows.
+The one exception is the tunnel's public URL, which is printed to the console
+(and the log) the moment it appears so it can be shared.
 
 Configuration comes from env / a project-root .env (see bitforge.config.Settings);
-BITFORGE_TOKEN is required, BITFORGE_NGROK_DOMAIN and BITFORGE_NGROK_AUTHTOKEN
-are optional (the authtoken authenticates the ngrok agent via NGROK_AUTHTOKEN).
+BITFORGE_TOKEN is required. The tunnel is chosen by which credential is present:
+set BITFORGE_CLOUDFLARED_TOKEN to use a cloudflared quick tunnel, otherwise
+ngrok is used (BITFORGE_NGROK_DOMAIN / BITFORGE_NGROK_AUTHTOKEN optional).
 """
 
 import json
 import os
+import re
 import select
 import shutil
 import signal
 import subprocess
 import sys
 import termios
+import threading
 import time
 import tty
 from pathlib import Path
@@ -148,6 +155,75 @@ def _require_binaries(names):
         sys.exit(f"Missing required binaries: {joined}. Install with: brew install {joined}")
 
 
+# The banner cloudflared prints on startup for a TryCloudflare quick tunnel,
+# e.g. "https://blue-sky-1234.trycloudflare.com" -- the ephemeral URL to share.
+_TRYCLOUDFLARE_URL_RE = re.compile(r"https://[\w.-]+\.trycloudflare\.com")
+
+
+def _spawn_cloudflared(logf):
+    """Start a cloudflared quick tunnel to :8000 and announce its ephemeral URL.
+
+    Algorithm:
+        1. Spawn `cloudflared tunnel --url http://localhost:8000` in its own
+           process group, with combined stdout/stderr on a text-mode pipe.
+        2. Start a daemon thread (_pump_tunnel_log) that drains that pipe into
+           the shared log file and prints the first trycloudflare.com URL it
+           sees to the console so the host can share it.
+
+    A quick tunnel needs no credential, so BITFORGE_CLOUDFLARED_TOKEN is only
+    the switch that selects this path; the token itself is not passed to
+    cloudflared (a populated value can be any non-empty placeholder).
+
+    Args:
+        logf (TextIO): shared append-mode log file the other children write to.
+
+    Returns:
+        subprocess.Popen: the running cloudflared process (in procs for teardown).
+    """
+    proc = subprocess.Popen(
+        ["cloudflared", "tunnel", "--url", "http://localhost:8000"],
+        start_new_session=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    threading.Thread(target=_pump_tunnel_log, args=(proc, logf), daemon=True).start()
+    return proc
+
+
+def _pump_tunnel_log(proc, logf):
+    """Forward a tunnel's piped output to the log, printing its URL once.
+
+    Reads proc.stdout line by line until EOF; appends each line to logf (so the
+    tunnel's diagnostics still land in the shared log) and, on the first line
+    that contains a trycloudflare.com URL, prints a labelled banner to the
+    console so the host can copy and share it.
+
+    Args:
+        proc (subprocess.Popen): tunnel process opened with stdout=PIPE, text=True.
+        logf (TextIO): shared append-mode log file.
+
+    Returns:
+        None. Runs until the pipe closes (the daemon thread then exits). On
+        shutdown the supervisor may close logf while a final buffered line is
+        still draining; a write to the closed file is caught so teardown stays
+        quiet instead of dumping a traceback.
+    """
+    announced = False
+    for line in proc.stdout:
+        try:
+            logf.write(line)
+            logf.flush()
+        except ValueError:
+            return  # logf closed during teardown -- nothing left to do
+        if not announced:
+            match = _TRYCLOUDFLARE_URL_RE.search(line)
+            if match:
+                announced = True
+                print(f"\nPublic URL (share this): {match.group(0)}\n", flush=True)
+
+
 def _cycle_view_mode(token):
     """Tell the running hub to cycle the viewer view mode, via a one-shot host socket.
 
@@ -197,7 +273,10 @@ def main():
             "Set it (in .env or the environment) to the directory you want to broadcast."
         )
 
-    _require_binaries(["tmux", "ttyd", "ngrok"])
+    # The tunnel binary is whichever provider the credentials select: a
+    # cloudflared token in .env switches to cloudflared, else ngrok.
+    tunnel = "cloudflared" if cfg.cloudflared_token else "ngrok"
+    _require_binaries(["tmux", "ttyd", tunnel])
 
     _ensure_tmux(cfg.tmux_session, cfg.cols, cfg.rows, cfg.source_dir)
 
@@ -227,16 +306,22 @@ def main():
         start_new_session=True, **quiet,
     ))
 
-    domain = cfg.ngrok_domain
-    ngrok_cmd = ["ngrok", "http", "8000"]
-    if domain:
-        ngrok_cmd = ["ngrok", "http", f"--domain={domain}", "8000"]
-    # ngrok reads its account credential from NGROK_AUTHTOKEN when set, so a
-    # token in .env authenticates the agent without touching ngrok's own config.
-    ngrok_env = os.environ.copy()
-    if cfg.ngrok_authtoken:
-        ngrok_env["NGROK_AUTHTOKEN"] = cfg.ngrok_authtoken
-    procs.append(subprocess.Popen(ngrok_cmd, start_new_session=True, env=ngrok_env, **quiet))
+    if tunnel == "cloudflared":
+        # Quick tunnel: cloudflared prints an ephemeral *.trycloudflare.com URL
+        # we capture and announce. Its output is piped (not redirected like the
+        # others) so _pump_tunnel_log can scan for that URL.
+        procs.append(_spawn_cloudflared(logf))
+    else:
+        domain = cfg.ngrok_domain
+        ngrok_cmd = ["ngrok", "http", "8000"]
+        if domain:
+            ngrok_cmd = ["ngrok", "http", f"--domain={domain}", "8000"]
+        # ngrok reads its account credential from NGROK_AUTHTOKEN when set, so a
+        # token in .env authenticates the agent without touching ngrok's own config.
+        ngrok_env = os.environ.copy()
+        if cfg.ngrok_authtoken:
+            ngrok_env["NGROK_AUTHTOKEN"] = cfg.ngrok_authtoken
+        procs.append(subprocess.Popen(ngrok_cmd, start_new_session=True, env=ngrok_env, **quiet))
 
     print("BitForge up. Attach your editor terminal with:")
     print(f"  tmux attach -t {cfg.tmux_session}")

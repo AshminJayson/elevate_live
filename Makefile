@@ -11,6 +11,7 @@ down:
 	pkill -f "bitforge.serve" || true; \
 	pkill -f "ttyd -p 7681" || true; \
 	pkill -f "ngrok http" || true; \
+	pkill -f "cloudflared tunnel" || true; \
 	echo "killing tmux session: $$SESSION"; \
 	tmux kill-session -t "$$SESSION" || true
 
