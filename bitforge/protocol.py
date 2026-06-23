@@ -2,7 +2,7 @@
 
 Wire messages (JSON over WebSocket), teacher -> server -> students:
     file: {"type": "file", "path": str, "language": str, "content": str}
-    tree: {"type": "tree", "tree": list[node]}
+    tree: {"type": "tree", "tree": list[node], "root": str}
 """
 
 from pathlib import PurePosixPath
@@ -48,16 +48,19 @@ def file_message(path: str, content: str) -> dict:
     return {"type": "file", "path": path, "language": detect_language(path), "content": content}
 
 
-def tree_message(tree: list[dict]) -> dict:
+def tree_message(tree: list[dict], root: str = "") -> dict:
     """Build a 'tree' wire message wrapping a file-tree snapshot.
 
     Args:
         tree (list[dict]): tree nodes from tree.build_tree.
+        root (str): display name of the broadcast project root (the lesson
+            directory's basename); shown as the explorer heading. Empty string
+            falls back to a generic heading on the client.
 
     Returns:
-        dict: {"type": "tree", "tree": list[node]}.
+        dict: {"type": "tree", "tree": list[node], "root": str}.
     """
-    return {"type": "tree", "tree": tree}
+    return {"type": "tree", "tree": tree, "root": root}
 
 
 if __name__ == "__main__":

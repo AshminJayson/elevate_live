@@ -4,11 +4,33 @@
   "description": "Stream the active editor's unsaved buffer to the BitForge broadcast hub so students follow your typing live.",
   "version": "0.1.0",
   "publisher": "bitforge",
+  "license": "MIT",
+  "author": {
+    "name": "Ashmin Jayson",
+    "email": "ashmin@trypolymath.ai"
+  },
+  "homepage": "https://github.com/AshminJayson/elevate_live#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AshminJayson/elevate_live.git",
+    "directory": "extension"
+  },
+  "bugs": {
+    "url": "https://github.com/AshminJayson/elevate_live/issues"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
+    "Education",
     "Other"
+  ],
+  "keywords": [
+    "teaching",
+    "live coding",
+    "broadcast",
+    "classroom",
+    "screen share"
   ],
   "main": "./out/extension.js",
   "activationEvents": [

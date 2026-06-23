@@ -3,206 +3,322 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>BitForge</title>
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.css"
-    />
+    <title>BitForge — live</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
     <style>
       :root {
-        --base: #0e0e10;
-        --iron: #16161a;
-        --raised: #1e1e22;
-        --seam: #2a2a30;
-        --text: #e8e6e3;
-        --muted: #8a8a93;
-        --ember: #ff7a18;
-        --ember-2: #e2552c;
-        --ember-dim: #b4451f;
-        --spark: #ffc56e;
-        --display: "Saira Condensed", ui-sans-serif, system-ui, sans-serif;
-        --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+        --forge: #0c0d10; /* page */
+        --anvil: #14161b; /* panels */
+        --raised: #1b1e24; /* hover / active fill */
+        --seam: #272b33; /* hairlines */
+        --text: #e9e7e3;
+        --muted: #797e88;
+        --ember: #ff6a3d; /* hero accent — heat */
+        --molten: #ffae6a; /* spark / highlight */
+        --quench: #6fb4c0; /* cool counter-accent — connecting */
+        --display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+        --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+        --gutter: 3.5ch;
       }
       * { box-sizing: border-box; }
-      html, body { margin: 0; height: 100%; background: var(--base); color: var(--text); font-family: var(--mono); }
-      *::selection { background: rgba(255, 122, 24, 0.28); }
+      html, body {
+        margin: 0; height: 100%;
+        background: var(--forge); color: var(--text);
+        font-family: var(--mono); font-size: 13px;
+        -webkit-font-smoothing: antialiased;
+      }
+      *::selection { background: rgba(255, 106, 61, 0.26); }
 
       #app {
         display: grid;
-        grid-template-columns: 240px 1fr;
-        grid-template-rows: 44px 1fr;
+        grid-template-columns: 248px 1fr;
+        grid-template-rows: 52px 1fr;
         height: 100vh;
       }
 
-      /* ---- header ---- */
+      /* ---------- header ---------- */
       #header {
+        position: relative;
         grid-column: 1 / 3;
-        display: flex;
-        align-items: center;
-        gap: 18px;
-        padding: 0 16px;
-        background: var(--iron);
-        border-bottom: 1px solid var(--ember-dim);
+        display: flex; align-items: center; gap: 20px;
+        padding: 0 18px;
+        background: var(--anvil);
       }
+      /* the signature: a molten seam that flares as live edits arrive */
+      #seam {
+        position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+        background: linear-gradient(90deg, transparent, var(--ember) 18%, var(--molten) 50%, var(--ember) 82%, transparent);
+        opacity: 0.32;
+      }
+      #seam.flare { animation: flare 720ms ease-out; }
+      @keyframes flare {
+        0% { opacity: 1; box-shadow: 0 0 10px var(--ember), 0 0 22px rgba(255, 106, 61, 0.7); filter: brightness(1.4); }
+        100% { opacity: 0.32; box-shadow: none; filter: brightness(1); }
+      }
+
       #brand {
-        display: flex;
-        align-items: center;
-        gap: 9px;
-        font-family: var(--display);
-        font-weight: 700;
-        font-size: 20px;
-        letter-spacing: 0.22em;
-        text-transform: uppercase;
-        color: var(--text);
+        display: flex; align-items: center; gap: 11px;
+        font-family: var(--display); font-weight: 700; font-size: 17px;
+        letter-spacing: 0.26em; text-transform: uppercase;
       }
-      #brand .spark {
-        width: 7px; height: 7px; border-radius: 50%;
-        background: radial-gradient(circle at 35% 35%, var(--spark), var(--ember-2));
-        box-shadow: 0 0 8px var(--ember);
+      #brand .anvil-mark {
+        width: 10px; height: 10px; border-radius: 2px;
+        background: radial-gradient(circle at 35% 30%, var(--molten), var(--ember) 60%, var(--ember-dim, #b4451f));
+        box-shadow: 0 0 9px var(--ember);
       }
-      #filename { font-size: 12px; color: var(--muted); letter-spacing: 0.02em; }
+      #brand .lo { color: var(--muted); }
 
-      /* live-state: the signature hot-metal indicator */
-      #status { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
-      #status .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--seam); }
-      #status.forging { color: var(--text); }
-      #status.forging .dot { background: radial-gradient(circle at 35% 35%, var(--spark), var(--ember-2)); box-shadow: 0 0 6px var(--ember), 0 0 14px rgba(255, 122, 24, 0.55); animation: pulse 1.8s ease-in-out infinite; }
-      #status.igniting .dot { background: var(--spark); animation: pulse 0.7s ease-in-out infinite; }
-      #status.cooling .dot { background: var(--ember-dim); opacity: 0.6; }
-      @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.35); opacity: 0.65; } }
+      #filename {
+        font-size: 12px; color: var(--muted); letter-spacing: 0.01em;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
 
-      #livebar { display: none; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; }
-      #livebar.show { display: flex; }
+      /* off-live notice */
+      #browsebar {
+        display: none; align-items: center; gap: 10px;
+        font-size: 11px; color: var(--molten);
+        letter-spacing: 0.06em;
+      }
+      #browsebar.show { display: flex; }
+
+      #right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+
+      /* status chip — plain words, forge-coded color */
+      #status {
+        display: flex; align-items: center; gap: 8px;
+        font-family: var(--display); font-weight: 600;
+        font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+        color: var(--muted);
+      }
+      #status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--seam); transition: background 200ms; }
+      #status.live { color: var(--text); }
+      #status.live .dot {
+        background: radial-gradient(circle at 35% 35%, var(--molten), var(--ember));
+        box-shadow: 0 0 6px var(--ember), 0 0 13px rgba(255, 106, 61, 0.55);
+        animation: breathe 2s ease-in-out infinite;
+      }
+      #status.connecting .dot { background: var(--quench); box-shadow: 0 0 7px rgba(111, 180, 192, 0.6); animation: breathe 0.85s ease-in-out infinite; }
+      #status.reconnecting .dot { background: var(--ember-dim, #b4451f); opacity: 0.7; }
+      @keyframes breathe { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.3); opacity: 0.6; } }
 
       button {
-        font: inherit; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
-        color: var(--text); background: transparent; border: 1px solid var(--seam);
-        border-radius: 4px; padding: 4px 10px; cursor: pointer;
+        font-family: var(--display); font-weight: 600;
+        font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+        color: var(--text); background: transparent;
+        border: 1px solid var(--seam); border-radius: 5px;
+        padding: 5px 11px; cursor: pointer;
+        transition: border-color 150ms, color 150ms, background 150ms;
       }
-      button:hover { border-color: var(--ember-dim); color: var(--spark); }
+      button:hover { border-color: var(--ember); color: var(--molten); }
       button:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
-      #return { border-color: var(--ember-dim); color: var(--spark); }
+      #backlive { border-color: var(--ember); color: var(--molten); }
 
-      /* ---- explorer ---- */
-      #explorer { background: var(--iron); border-right: 1px solid var(--seam); overflow: auto; }
-      #explorer .eyebrow { padding: 12px 14px 6px; font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--muted); }
-      #explorer .node { padding: 3px 12px; cursor: pointer; white-space: nowrap; font-size: 13px; color: #cfcdc9; border-left: 2px solid transparent; }
-      #explorer .node:hover { background: var(--raised); }
-      #explorer .node.active { background: linear-gradient(90deg, rgba(255, 122, 24, 0.16), transparent); border-left-color: var(--ember); color: #fff; }
-      #explorer .node .dir { color: var(--muted); }
+      /* ---------- explorer ---------- */
+      #explorer { background: var(--anvil); border-right: 1px solid var(--seam); overflow: auto; padding-bottom: 16px; }
+      .eyebrow {
+        position: sticky; top: 0; z-index: 1;
+        padding: 14px 16px 9px;
+        font-family: var(--display); font-weight: 600;
+        font-size: 10px; letter-spacing: 0.26em; text-transform: uppercase;
+        color: var(--muted); background: var(--anvil);
+      }
+      .node {
+        display: flex; align-items: center; gap: 7px;
+        padding: 4px 14px; cursor: default; white-space: nowrap;
+        font-size: 12.5px; color: #c2c0bc;
+        border-left: 2px solid transparent;
+      }
+      .node.file { cursor: pointer; }
+      .node.file:hover { background: var(--raised); color: var(--text); }
+      .node.active { background: linear-gradient(90deg, rgba(255, 106, 61, 0.16), transparent 70%); border-left-color: var(--ember); color: #fff; }
+      .node .twig { color: var(--seam); }
+      .node.dir { color: var(--muted); text-transform: none; letter-spacing: 0.01em; }
+      .node.dir .glyph { color: var(--muted); }
+      .node.file .glyph { color: var(--ember); opacity: 0.55; }
+      .node.active .glyph { opacity: 1; }
 
-      /* ---- main / panes ---- */
+      /* ---------- main ---------- */
       #main { display: grid; grid-template-rows: 1fr 38%; min-width: 0; }
-      #code { min-height: 0; }
-      #term { border-top: 1px solid var(--seam); background: var(--base); min-height: 0; }
+
+      #code {
+        min-height: 0; overflow: auto;
+        background: var(--forge);
+        font-size: 13px; line-height: 1.62;
+        padding: 14px 0 28px;
+      }
+      #code .empty {
+        height: 100%; display: flex; align-items: center; justify-content: center;
+        color: var(--muted); letter-spacing: 0.04em;
+      }
+      /* Shiki output: own background + a line-number gutter via counters */
+      #code pre.shiki { margin: 0; padding: 0; background: transparent !important; }
+      #code pre.shiki code { counter-reset: ln; display: block; }
+      #code pre.shiki .line {
+        display: inline-block; width: 100%; padding-right: 20px;
+      }
+      #code pre.shiki .line::before {
+        counter-increment: ln; content: counter(ln);
+        display: inline-block; width: var(--gutter); margin-right: 1.6ch;
+        padding-right: 1.2ch; text-align: right;
+        color: #4c515b; user-select: none;
+        border-right: 1px solid var(--seam);
+      }
+      #code pre.shiki .line:hover::before { color: var(--ember); }
+
+      /* ---------- terminal ---------- */
+      #term { display: flex; flex-direction: column; border-top: 1px solid var(--seam); background: var(--forge); min-height: 0; }
+      #term .bar {
+        display: flex; align-items: center; gap: 9px;
+        padding: 7px 16px; background: var(--anvil); border-bottom: 1px solid var(--seam);
+        font-family: var(--display); font-weight: 600;
+        font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted);
+      }
+      #term .bar .ro { color: var(--quench); }
+      #term .frame { flex: 1; min-height: 0; }
       #term iframe { width: 100%; height: 100%; border: 0; display: block; }
 
-      /* ---- terminal-only mode ---- */
+      /* ---------- terminal-only mode ---------- */
       #app.terminal-only { grid-template-columns: 1fr; }
-      #app.terminal-only #explorer, #app.terminal-only #code, #app.terminal-only #filename, #app.terminal-only #livebar { display: none; }
+      #app.terminal-only #explorer,
+      #app.terminal-only #code,
+      #app.terminal-only #filename,
+      #app.terminal-only #browsebar { display: none; }
       #app.terminal-only #main { grid-template-rows: 1fr; }
       #app.terminal-only #term { border-top: 0; }
 
-      @media (max-width: 720px) {
+      @media (max-width: 760px) {
         #app { grid-template-columns: 1fr; }
         #explorer { display: none; }
+        #brand { font-size: 15px; letter-spacing: 0.2em; }
       }
       @media (prefers-reduced-motion: reduce) {
-        #status .dot { animation: none !important; }
+        #status .dot, #seam.flare { animation: none !important; }
       }
     </style>
   </head>
   <body>
     <div id="app">
-      <div id="header">
-        <span id="brand"><span class="spark"></span><span id="wordmark">BITFORGE</span></span>
+      <header id="header">
+        <span id="brand"><span class="anvil-mark"></span><span>BIT<span class="lo">FORGE</span></span></span>
         <span id="filename"></span>
-        <span id="livebar"><span>browsing</span><button id="return">return to live</button></span>
-        <span id="status"><span class="dot"></span><span id="statustext">igniting</span></span>
-        <button id="termonly" title="Toggle terminal-only view">terminal</button>
-      </div>
-      <div id="explorer"><div class="eyebrow">Files</div></div>
+        <span id="browsebar"><span>Viewing a file — off the live feed</span><button id="backlive">Back to live</button></span>
+        <span id="right">
+          <span id="status"><span class="dot"></span><span id="statustext">Connecting</span></span>
+          <button id="termonly" title="Toggle terminal-only view">Terminal</button>
+        </span>
+        <span id="seam"></span>
+      </header>
+
+      <nav id="explorer"><div class="eyebrow">Lesson files</div></nav>
+
       <div id="main">
-        <div id="code"></div>
-        <div id="term"><iframe src="/terminal/" title="terminal"></iframe></div>
+        <div id="code"><div class="empty">Waiting for the live feed…</div></div>
+        <section id="term">
+          <div class="bar"><span>Terminal</span><span class="ro">· read-only</span></div>
+          <div class="frame"><iframe src="/terminal/" title="Shared terminal"></iframe></div>
+        </section>
       </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
-    <script>
-      let editor = null;
-      let liveFile = null; // last file message from the teacher
-      let browsing = false; // true when viewing a clicked file
+    <script type="module">
+      import { createHighlighter } from "https://esm.sh/shiki@1.29.2";
+
+      const el = (id) => document.getElementById(id);
+
+      // ---- state ----
+      let highlighter = null;
+      const LOADED_LANGS = new Set([
+        "python", "javascript", "typescript", "json", "html",
+        "css", "markdown", "yaml", "toml", "shell",
+      ]);
+      let liveFile = null; // last 'file' message from the teacher
+      let browsing = false; // true when viewing a clicked file (off live)
+      let renderedPath = null; // path currently painted in #code (for scroll keep)
+      let lastRender = null; // {content, lang, path} — replayed once Shiki is ready
       let reconnectDelay = 1000;
 
-      require.config({ paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs" } });
-      require(["vs/editor/editor.main"], () => {
-        monaco.editor.defineTheme("bitforge", {
-          base: "vs-dark",
-          inherit: true,
-          rules: [],
-          colors: {
-            "editor.background": "#0e0e10",
-            "editorGutter.background": "#0e0e10",
-            "editorCursor.foreground": "#ff7a18",
-            "editor.selectionBackground": "#3a2a1f",
-            "editor.lineHighlightBackground": "#16161a",
-            "editorLineNumber.foreground": "#5a5a62",
-          },
-        });
-        editor = monaco.editor.create(document.getElementById("code"), {
-          value: "", language: "plaintext", readOnly: true, automaticLayout: true,
-          theme: "bitforge", minimap: { enabled: false }, fontFamily: "ui-monospace, monospace",
-        });
-        connect();
-      });
+      // Server sends Monaco-style ids; Shiki uses its own. Unknown -> plain text.
+      const SHIKI_LANG = {
+        python: "python", javascript: "javascript", typescript: "typescript",
+        json: "json", html: "html", css: "css", markdown: "markdown",
+        yaml: "yaml", toml: "toml", shell: "shell", plaintext: "text",
+      };
+      // File extension -> the same language ids, for browsed files (no server hint).
+      const LANG_BY_EXT = {
+        py: "python", js: "javascript", ts: "typescript", json: "json",
+        html: "html", css: "css", md: "markdown", toml: "toml",
+        yaml: "yaml", yml: "yaml", sh: "shell", txt: "plaintext",
+      };
 
-      // The live indicator speaks the forge metaphor and encodes connection state.
-      function setStatus(state, text) {
-        const el = document.getElementById("status");
-        el.className = state; // "igniting" | "forging" | "cooling"
-        document.getElementById("statustext").textContent = text;
+      const escapeHtml = (s) =>
+        s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+      // Fallback render when Shiki is unavailable or the grammar is unknown.
+      function plainPre(content) {
+        return '<pre class="shiki"><code>' +
+          content.split("\n").map((l) => '<span class="line">' + escapeHtml(l) + "</span>").join("\n") +
+          "</code></pre>";
+      }
+
+      /**
+       * Paint code into #code, preserving scroll position when the path is unchanged.
+       * Highlights via Shiki when ready; otherwise paints plain text and stashes the
+       * request in lastRender so it is re-highlighted the moment Shiki loads.
+       */
+      function renderCode(content, lang, path) {
+        const host = el("code");
+        const samePath = path === renderedPath;
+        const keepScroll = samePath ? host.scrollTop : 0;
+        lastRender = { content, lang, path };
+
+        let html;
+        const shikiLang = SHIKI_LANG[lang] || "text";
+        if (highlighter && (shikiLang === "text" || LOADED_LANGS.has(shikiLang))) {
+          try {
+            html = highlighter.codeToHtml(content, { lang: shikiLang, theme: "vesper" });
+          } catch {
+            html = plainPre(content);
+          }
+        } else {
+          html = plainPre(content);
+        }
+        host.innerHTML = html;
+        host.scrollTop = keepScroll;
+        renderedPath = path;
       }
 
       function showFile(msg) {
-        document.getElementById("filename").textContent = msg.path;
-        const model = editor.getModel();
-        monaco.editor.setModelLanguage(model, msg.language || "plaintext");
-        editor.setValue(msg.content);
-        highlight(msg.path);
+        el("filename").textContent = msg.path;
+        renderCode(msg.content, msg.language || "plaintext", msg.path);
+        highlightNode(msg.path);
       }
 
-      function highlight(path) {
-        document.querySelectorAll("#explorer .node").forEach((el) => {
-          el.classList.toggle("active", el.dataset.path === path);
+      function highlightNode(path) {
+        document.querySelectorAll("#explorer .node").forEach((n) => {
+          n.classList.toggle("active", n.dataset.path === path);
         });
       }
 
-      function renderTree(nodes, container, depth) {
-        if (!depth) container.innerHTML = '<div class="eyebrow">Files</div>';
+      // ---- file tree ----
+      function renderTree(nodes, container, depth, root) {
+        if (!depth) container.innerHTML = '<div class="eyebrow">' + (root || "Lesson files") + "</div>";
         for (const node of nodes) {
-          const el = document.createElement("div");
-          el.className = "node";
-          el.dataset.path = node.path;
-          el.style.paddingLeft = 12 + depth * 14 + "px";
-          if (node.type === "dir") {
-            el.innerHTML = '<span class="dir">' + "▾ " + node.name + "</span>";
-          } else {
-            el.textContent = "  " + node.name;
-            el.onclick = () => browseFile(node.path);
-          }
-          container.appendChild(el);
-          if (node.type === "dir" && node.children) {
-            renderTree(node.children, container, depth + 1);
-          }
+          const row = document.createElement("div");
+          row.className = "node " + (node.type === "dir" ? "dir" : "file");
+          row.dataset.path = node.path;
+          row.style.paddingLeft = 14 + depth * 14 + "px";
+          const glyph = node.type === "dir" ? "▾" : "•";
+          row.innerHTML = '<span class="glyph">' + glyph + "</span><span>" + node.name + "</span>";
+          if (node.type === "file") row.onclick = () => browseFile(node.path);
+          container.appendChild(row);
+          if (node.type === "dir" && node.children) renderTree(node.children, container, depth + 1);
         }
-        if (liveFile && !browsing) highlight(liveFile.path);
+        if (liveFile && !browsing) highlightNode(liveFile.path);
       }
 
       async function browseFile(path) {
@@ -210,30 +326,47 @@
         if (!res.ok) return;
         const content = await res.text();
         browsing = true;
-        document.getElementById("livebar").classList.add("show");
+        el("browsebar").classList.add("show");
         const ext = path.split(".").pop();
-        // Monaco has no toml grammar; ini is the closest available.
-        const lang = { py: "python", js: "javascript", ts: "typescript", json: "json", html: "html", css: "css", md: "markdown", toml: "ini", yaml: "yaml", yml: "yaml" }[ext] || "plaintext";
-        showFile({ path, language: lang, content });
+        showFile({ path, language: LANG_BY_EXT[ext] || "plaintext", content });
       }
 
-      document.getElementById("return").onclick = () => {
+      el("backlive").onclick = () => {
         browsing = false;
-        document.getElementById("livebar").classList.remove("show");
+        el("browsebar").classList.remove("show");
         if (liveFile) showFile(liveFile);
       };
+
+      // ---- live status + the heat-seam signature ----
+      function setStatus(state, text) {
+        el("status").className = state; // "connecting" | "live" | "reconnecting"
+        el("statustext").textContent = text;
+      }
+
+      // Restart the seam animation so it flares on each arriving live edit.
+      function flareSeam() {
+        const seam = el("seam");
+        seam.classList.remove("flare");
+        void seam.offsetWidth; // reflow to replay the animation
+        seam.classList.add("flare");
+      }
 
       function connect() {
         const proto = location.protocol === "https:" ? "wss" : "ws";
         const ws = new WebSocket(proto + "://" + location.host + "/ws/student");
-        ws.onopen = () => { setStatus("forging", "forging"); reconnectDelay = 1000; };
-        ws.onclose = () => { setStatus("cooling", "cooling"); setTimeout(connect, reconnectDelay); reconnectDelay = Math.min(reconnectDelay * 2, 30000); };
+        ws.onopen = () => { setStatus("live", "Live"); reconnectDelay = 1000; };
+        ws.onclose = () => {
+          setStatus("reconnecting", "Reconnecting");
+          setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+        };
         ws.onmessage = (ev) => {
           const msg = JSON.parse(ev.data);
           if (msg.type === "tree") {
-            renderTree(msg.tree, document.getElementById("explorer"), 0);
+            renderTree(msg.tree, el("explorer"), 0, msg.root);
           } else if (msg.type === "file") {
             liveFile = msg;
+            flareSeam();
             if (!browsing) showFile(msg);
           }
         };
@@ -241,15 +374,24 @@
 
       // ---- terminal-only mode: localStorage + #terminal hash (hash wins) ----
       function setTerminalOnly(on) {
-        document.getElementById("app").classList.toggle("terminal-only", on);
-        document.getElementById("termonly").textContent = on ? "show code" : "terminal";
+        el("app").classList.toggle("terminal-only", on);
+        el("termonly").textContent = on ? "Show code" : "Terminal";
         localStorage.setItem("bitforge.terminalOnly", on ? "1" : "0");
       }
-      document.getElementById("termonly").onclick = () => {
-        setTerminalOnly(!document.getElementById("app").classList.contains("terminal-only"));
-      };
+      el("termonly").onclick = () =>
+        setTerminalOnly(!el("app").classList.contains("terminal-only"));
       window.addEventListener("hashchange", () => setTerminalOnly(location.hash === "#terminal"));
       setTerminalOnly(location.hash === "#terminal" || localStorage.getItem("bitforge.terminalOnly") === "1");
+
+      // ---- boot: connect immediately, upgrade to highlighted once Shiki loads ----
+      setStatus("connecting", "Connecting");
+      connect();
+      createHighlighter({ themes: ["vesper"], langs: [...LOADED_LANGS] })
+        .then((hl) => {
+          highlighter = hl;
+          if (lastRender) renderCode(lastRender.content, lastRender.lang, lastRender.path);
+        })
+        .catch(() => { /* keep plain-text fallback; nothing to surface to students */ });
     </script>
   </body>
 </html>

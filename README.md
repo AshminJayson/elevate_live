@@ -46,6 +46,27 @@ without write mode and attaches tmux read-only, and the Monaco editor is
 `readOnly`. Only `:8000` is exposed; `ttyd` (`:7681`) and the broadcaster bind
 localhost.
 
+## Repository layout
+
+```
+bitforge/            FastAPI hub + broadcaster (the Python package)
+  server.py          hub: student page, /ws/{teacher,student}, /file, /terminal proxy
+  broadcaster.py     watchdog file-watcher → tree + active-file messages
+  tree.py            build the JSON file-tree of the lesson dir (ignore-aware)
+  protocol.py        wire-message builders + extension→language mapping
+  config.py          pydantic-settings (.env, BITFORGE_* keys)
+  run.py             orchestrator: starts ttyd, ngrok, uvicorn, broadcaster
+static/index.html    the three-pane student page (explorer / Monaco / terminal)
+extension/           VS Code "Live Sync" extension (streams the unsaved buffer)
+lesson/              default lesson directory broadcast to students
+tests/               pytest suite (run with `make test`)
+.env.example         configuration template (copy to .env)
+```
+
+The explorer heading shown to students is the **basename of the broadcast
+lesson directory** (`BITFORGE_LESSON_DIR`), so students see the name of the
+project you are teaching rather than a generic label.
+
 ## Prerequisites
 
     brew install ttyd tmux ngrok
@@ -125,3 +146,16 @@ URL only with your class and treat it as a secret.
 ## Test
 
     make test
+
+## Make targets
+
+| Target | Action |
+|--------|--------|
+| `make up` | Start the full stack (ttyd, ngrok, uvicorn hub, broadcaster). |
+| `make down` | Tear it all down and kill the shared tmux session. |
+| `make test` | Run the pytest suite. |
+
+## License
+
+[MIT](LICENSE) © Ashmin Jayson. The bundled VS Code extension under
+[`extension/`](extension/) is MIT-licensed as well.

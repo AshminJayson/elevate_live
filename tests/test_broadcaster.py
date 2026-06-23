@@ -33,6 +33,7 @@ def test_make_tree_message(tmp_path):
     msg = make_tree_message(tmp_path, [])
     assert msg["type"] == "tree"
     assert msg["tree"][0]["path"] == "main.py"
+    assert msg["root"] == tmp_path.resolve().name
 
 
 def test_coalesce_burst_keeps_file_after_leading_tree_event():

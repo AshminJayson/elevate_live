@@ -31,7 +31,7 @@ def test_page_loads_cdn_assets_and_panes(tmp_path):
     )
     client = TestClient(create_app(cfg))
     html = client.get("/").text
-    assert "cdn.jsdelivr.net/npm/monaco-editor" in html  # Monaco from CDN
+    assert "esm.sh/shiki" in html  # Shiki highlighter from CDN
     assert 'id="explorer"' in html
     assert 'id="code"' in html
     assert 'src="/terminal/"' in html  # terminal via proxy
@@ -44,9 +44,10 @@ def test_inline_page_javascript_is_syntactically_valid(tmp_path):
     Algorithm:
         Extract every inline <script> block (those without a src attribute)
         from static/index.html, concatenate them, and run `node --check` on the
-        result. A syntax error in the inline script silently breaks the entire
-        student page (no editor, no tree, no WebSocket) yet leaves the HTML
-        substring assertions passing, so this executes the JS parser directly.
+        result (as an .mjs file, since the page's inline script is an ES module
+        that uses `import`). A syntax error in the inline script silently breaks
+        the entire student page (no highlighter, no tree, no WebSocket) yet leaves
+        the HTML substring assertions passing, so this executes the JS parser directly.
 
     Args:
         tmp_path (Path): pytest fixture for a scratch file.
@@ -59,7 +60,7 @@ def test_inline_page_javascript_is_syntactically_valid(tmp_path):
     html = _INDEX_HTML.read_text()
     blocks = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.S)
     assert blocks, "expected at least one inline <script> block in index.html"
-    js_file = tmp_path / "page_inline.js"
+    js_file = tmp_path / "page_inline.mjs"
     js_file.write_text("\n".join(blocks))
     result = subprocess.run(
         ["node", "--check", str(js_file)], capture_output=True, text=True

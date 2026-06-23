@@ -24,4 +24,5 @@ def test_file_message():
 
 def test_tree_message():
     tree = [{"name": "main.py", "path": "main.py", "type": "file"}]
-    assert tree_message(tree) == {"type": "tree", "tree": tree}
+    assert tree_message(tree) == {"type": "tree", "tree": tree, "root": ""}
+    assert tree_message(tree, "lesson") == {"type": "tree", "tree": tree, "root": "lesson"}

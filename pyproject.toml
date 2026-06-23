@@ -6,7 +6,11 @@ build-backend = "setuptools.build_meta"
 name = "bitforge"
 version = "0.1.0"
 description = "View-only live code/terminal broadcast for teaching"
+readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.11"
+authors = [{ name = "Ashmin Jayson", email = "ashmin@trypolymath.ai" }]
+keywords = ["teaching", "live-coding", "broadcast", "classroom", "fastapi"]
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
@@ -18,6 +22,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-asyncio"]
+
+[project.urls]
+Homepage = "https://github.com/AshminJayson/elevate_live"
+Repository = "https://github.com/AshminJayson/elevate_live.git"
+Issues = "https://github.com/AshminJayson/elevate_live/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

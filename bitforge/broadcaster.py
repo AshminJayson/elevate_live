@@ -28,7 +28,7 @@ def make_tree_message(lesson_dir, ignore):
     Returns:
         dict: tree wire message.
     """
-    return tree_message(build_tree(lesson_dir, ignore))
+    return tree_message(build_tree(lesson_dir, ignore), Path(lesson_dir).resolve().name)
 
 
 def make_file_message(lesson_dir, rel_path, ignore):

@@ -12,13 +12,16 @@ let debounceTimer: NodeJS.Timeout | null = null;
 let config: BitForgeConfig | null = null;
 
 /**
- * Activate the extension: wire the status bar, listeners, commands, and connect.
+ * Activate the extension: wire the status bar, listeners, and commands.
  *
- * The teacher token is entered via a prompt and stored in VS Code SecretStorage
- * (OS keychain), not a .env file — so the extension works in any opened project
- * with no per-project secret file. Edits and active-editor changes feed a
- * debounced send of the UNSAVED buffer; the server re-derives language and
- * re-checks the sandbox/ignore, so the wire message is just {type,path,content}.
+ * Activation does NOT connect or prompt — streaming is opt-in. The status bar
+ * starts in the "off" state; the teacher starts streaming by clicking it or
+ * running the toggle command, at which point the token is prompted for (if
+ * missing) and stored in VS Code SecretStorage (OS keychain), not a .env file —
+ * so the extension works in any opened project with no per-project secret file.
+ * Once streaming, edits and active-editor changes feed a debounced send of the
+ * UNSAVED buffer; the server re-derives language and re-checks the
+ * sandbox/ignore, so the wire message is just {type,path,content}.
  *
  * @param ctx the extension context (provides SecretStorage; subscriptions are
  *   disposed on shutdown)
@@ -29,7 +32,10 @@ export function activate(ctx: vscode.ExtensionContext): void {
   status.command = "bitforge.toggleStreaming";
   ctx.subscriptions.push(status);
 
-  void start();
+  // Do not connect or prompt for a token on startup — streaming is opt-in. The
+  // status bar shows "off"; the teacher clicks it (or runs the toggle command)
+  // to start, which is when getToken() prompts for the token if it is missing.
+  setStatus("stopped");
 
   ctx.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((e) => {
@@ -195,12 +201,12 @@ function streamActive(): void {
   connection.send({ type: "file", path: rel, content: editor.document.getText() });
 }
 
-/** Reflect connection state in the status bar with a forge-themed label. */
+/** Reflect connection state in the status bar. */
 function setStatus(state: ConnState): void {
   const labels: Record<ConnState, string> = {
-    connecting: "$(sync~spin) BitForge: igniting",
-    live: "$(flame) BitForge: forging",
-    reconnecting: "$(sync~spin) BitForge: cooling",
+    connecting: "$(sync~spin) BitForge: connecting",
+    live: "$(flame) BitForge: streaming",
+    reconnecting: "$(sync~spin) BitForge: reconnecting",
     stopped: "$(circle-slash) BitForge: off",
   };
   status.text = labels[state];

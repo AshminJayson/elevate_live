@@ -27,6 +27,8 @@ class State:
 
     Attributes:
         current_tree (list): latest tree nodes (see tree.build_tree schema).
+        current_root (str): display name of the broadcast project root (lesson
+            dir basename), shown as the explorer heading; "" until first tree.
         current_file (dict | None): latest 'file' wire message, or None.
         students (set[WebSocket]): connected student sockets.
     """
@@ -34,6 +36,7 @@ class State:
     def __init__(self):
         """Initialize empty broadcast state (no tree, no file, no students)."""
         self.current_tree = []
+        self.current_root = ""
         self.current_file = None
         self.students = set()
 
@@ -147,6 +150,7 @@ def create_app(config=None):
                 message = await ws.receive_json()
                 if message.get("type") == "tree":
                     state.current_tree = message.get("tree", [])
+                    state.current_root = message.get("root", "")
                     await _broadcast(state, message)
                 elif message.get("type") == "file":
                     sanitized = _sanitize_file_message(config, message, config.ignore)
@@ -171,7 +175,7 @@ def create_app(config=None):
         await ws.accept()
         state = app.state.live
         state.students.add(ws)
-        await ws.send_json({"type": "tree", "tree": state.current_tree})
+        await ws.send_json({"type": "tree", "tree": state.current_tree, "root": state.current_root})
         if state.current_file is not None:
             await ws.send_json(state.current_file)
         try:
@@ -238,12 +242,17 @@ def create_app(config=None):
                         else:
                             await ws.send_bytes(data)
 
-                done, pending = await asyncio.wait(
-                    [asyncio.create_task(to_upstream()), asyncio.create_task(to_client())],
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
+                tasks = [asyncio.create_task(to_upstream()), asyncio.create_task(to_client())]
+                _done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
                 for task in pending:
                     task.cancel()
+                # Retrieve every task's outcome so a peer disconnect never surfaces
+                # as an unhandled "Task exception was never retrieved". A student
+                # going away raises WebSocketDisconnect from to_upstream; ttyd going
+                # away ends to_client. Both are normal teardown for this read-only
+                # proxy — swallow them (gather consumes the cancelled pending task
+                # too) and let the handler return so FastAPI closes the socket.
+                await asyncio.gather(*tasks, return_exceptions=True)
         except (OSError, websockets.exceptions.WebSocketException):
             await ws.close(code=status.WS_1011_INTERNAL_ERROR)
 
