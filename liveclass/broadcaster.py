@@ -7,14 +7,13 @@ manually end-to-end (Task 9).
 
 import asyncio
 import json
-import os
 from pathlib import Path
 
 import websockets
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from liveclass.config import Config, is_ignored, load_config
+from liveclass.config import is_ignored, load_settings
 from liveclass.protocol import file_message, tree_message
 from liveclass.tree import build_tree
 
@@ -64,7 +63,7 @@ class _Handler(FileSystemEventHandler):
 
     Attributes:
         _root: resolved lesson directory Path.
-        _config_path: resolved Path to the config file (liveclass.toml).
+        _config_path: resolved Path to the config file (.env).
         _queue: asyncio.Queue for (kind, rel_path) tuples.
         _loop: running event loop for thread-safe queue operations.
     """
@@ -146,18 +145,18 @@ async def run(config):
 
     Algorithm:
         Connect (with retry/backoff) to the teacher WebSocket. Start a watchdog
-        observer on lesson_dir and liveclass.toml. On a file change, send a
+        observer on lesson_dir and the .env config file. On a file change, send a
         file message; on tree/config changes, re-send the full tree. Debounce
         rapid events by ~100ms.
 
     Args:
-        config (Config): resolved configuration.
+        config (Settings): resolved configuration.
     """
     url = f"ws://127.0.0.1:8000/ws/teacher?token={config.token}"
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
 
-    config_path = Path(os.environ.get("LIVECLASS_CONFIG", "liveclass.toml")).resolve()
+    config_path = Path(".env").resolve()
     handler = _Handler(config.lesson_dir, queue, loop, config_path)
     observer = Observer()
     observer.schedule(handler, str(config.lesson_dir), recursive=True)
@@ -223,5 +222,4 @@ def _json(message):
 
 
 if __name__ == "__main__":
-    cfg = load_config(os.environ.get("LIVECLASS_CONFIG", "liveclass.toml"))
-    asyncio.run(run(cfg))
+    asyncio.run(run(load_settings()))

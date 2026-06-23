@@ -13,6 +13,7 @@ dependencies = [
     "websockets",
     "watchdog",
     "httpx",
+    "pydantic-settings",
 ]
 
 [project.optional-dependencies]

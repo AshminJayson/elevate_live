@@ -6,15 +6,15 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from liveclass.config import Config
+from liveclass.config import Settings
 from liveclass.server import create_app
 
 _INDEX_HTML = Path(__file__).resolve().parent.parent / "static" / "index.html"
 
 
 def test_root_serves_html(tmp_path):
-    cfg = Config(
-        lesson_dir=tmp_path, title="T", ignore=[],
+    cfg = Settings(
+        _env_file=None, lesson_dir=tmp_path, title="T", ignore=[],
         tmux_session="class", cols=100, rows=30, token="secret",
     )
     client = TestClient(create_app(cfg))
@@ -25,8 +25,8 @@ def test_root_serves_html(tmp_path):
 
 
 def test_page_loads_cdn_assets_and_panes(tmp_path):
-    cfg = Config(
-        lesson_dir=tmp_path, title="T", ignore=[],
+    cfg = Settings(
+        _env_file=None, lesson_dir=tmp_path, title="T", ignore=[],
         tmux_session="class", cols=100, rows=30, token="secret",
     )
     client = TestClient(create_app(cfg))

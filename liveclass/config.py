@@ -1,14 +1,21 @@
-"""Configuration loading and ignore-pattern matching for LiveClass.
+"""Central configuration and the single ignore-matching rule for LiveClass.
 
-This module owns liveclass.toml parsing and the single ignore-matching rule
-used by both the file-tree walk and the /file endpoint.
+All configuration lives in one place: a pydantic-settings `Settings` model
+sourced from the process environment and an optional project-root `.env`
+file. Every key shares the `LIVECLASS_` prefix, so a single `.env` is the one
+configuration endpoint. Exported environment variables take precedence over
+`.env` (pydantic-settings' default source priority), so CI/overrides keep
+working.
+
+This module also owns `is_ignored`, the single visibility rule used by both
+the file-tree walk and the /file endpoint.
 """
 
-import os
-import tomllib
-from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_IGNORE = [
     ".git/",
@@ -20,59 +27,64 @@ DEFAULT_IGNORE = [
 ]
 
 
-@dataclass
-class Config:
-    """Resolved LiveClass configuration.
+class Settings(BaseSettings):
+    """Resolved LiveClass configuration, loaded from env / .env.
 
-    Fields:
-        lesson_dir: absolute Path to the directory broadcast to students.
-        title: page title shown to students.
-        ignore: list of glob/dir patterns hidden from tree and /file.
-        tmux_session: tmux session name shared by teacher, ttyd, and runner.
-        cols: fixed terminal width streamed to students.
-        rows: fixed terminal height streamed to students.
-        token: teacher auth token (from env, never persisted).
+    Sources, highest priority first: constructor kwargs, environment variables
+    (e.g. LIVECLASS_TOKEN), the project-root `.env` file, then field defaults.
+
+    Fields (env key is the field name upper-cased with the LIVECLASS_ prefix):
+        token (str): teacher auth token; "" means no teacher may connect.
+            Env: LIVECLASS_TOKEN.
+        ngrok_domain (str): reserved static ngrok domain, "" to use a random
+            ephemeral URL. Env: LIVECLASS_NGROK_DOMAIN.
+        lesson_dir (Path): absolute directory broadcast to students (resolved
+            from whatever is given). Env: LIVECLASS_LESSON_DIR.
+        title (str): page title. Env: LIVECLASS_TITLE.
+        ignore (list[str]): glob/dir patterns hidden from the tree and /file;
+            given in .env as a JSON array. Env: LIVECLASS_IGNORE.
+        tmux_session (str): shared tmux session name. Env: LIVECLASS_TMUX_SESSION.
+        cols (int): fixed terminal width. Env: LIVECLASS_COLS.
+        rows (int): fixed terminal height. Env: LIVECLASS_ROWS.
     """
 
-    lesson_dir: Path
-    title: str
-    ignore: list[str]
-    tmux_session: str
-    cols: int
-    rows: int
-    token: str
+    model_config = SettingsConfigDict(
+        env_prefix="LIVECLASS_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    token: str = ""
+    ngrok_domain: str = ""
+    lesson_dir: Path = Path("./lesson")
+    title: str = "LiveClass"
+    ignore: list[str] = DEFAULT_IGNORE
+    tmux_session: str = "class"
+    cols: int = 100
+    rows: int = 30
+
+    @field_validator("lesson_dir")
+    @classmethod
+    def _resolve_lesson_dir(cls, value: Path) -> Path:
+        """Resolve lesson_dir to an absolute path so the sandbox root is stable."""
+        return Path(value).resolve()
 
 
-def load_config(path: str | Path, token: str | None = None) -> Config:
-    """Load and resolve configuration from a TOML file.
+def load_settings() -> Settings:
+    """Load configuration from the environment and `.env`.
 
     Algorithm:
-        1. Read and parse the TOML at `path`.
-        2. Pull [broadcast] and [terminal] tables, applying defaults for any
-           missing key.
-        3. Resolve lesson_dir to an absolute Path.
-        4. Resolve token: explicit arg wins, else LIVECLASS_TOKEN env, else "".
-
-    Args:
-        path (str | Path): path to liveclass.toml.
-        token (str | None): override token; if None, read LIVECLASS_TOKEN.
+        Construct a fresh `Settings`, which reads (in priority order) any set
+        LIVECLASS_* environment variables, then `.env` in the current working
+        directory, then field defaults. A fresh instance is returned each call
+        so callers that re-read it pick up live `.env` edits (hot reload).
 
     Returns:
-        Config: the resolved configuration.
+        Settings: the resolved configuration.
     """
-    data = tomllib.loads(Path(path).read_text(encoding="utf-8"))
-    broadcast = data.get("broadcast", {})
-    terminal = data.get("terminal", {})
-    resolved_token = token if token is not None else os.environ.get("LIVECLASS_TOKEN", "")
-    return Config(
-        lesson_dir=Path(broadcast.get("lesson_dir", "./lesson")).resolve(),
-        title=broadcast.get("title", "LiveClass"),
-        ignore=list(broadcast.get("ignore", DEFAULT_IGNORE)),
-        tmux_session=terminal.get("tmux_session", "class"),
-        cols=int(terminal.get("cols", 100)),
-        rows=int(terminal.get("rows", 30)),
-        token=resolved_token,
-    )
+    return Settings()
 
 
 def is_ignored(rel_path: str, ignore_patterns: list[str]) -> bool:
@@ -101,5 +113,7 @@ def is_ignored(rel_path: str, ignore_patterns: list[str]) -> bool:
 
 
 if __name__ == "__main__":
-    cfg = load_config("liveclass.toml", token="demo")
-    print(cfg)
+    settings = load_settings()
+    shown = settings.model_dump()
+    shown["token"] = "***" if settings.token else ""  # never print the secret
+    print(shown)
