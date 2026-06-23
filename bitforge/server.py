@@ -14,6 +14,7 @@ import httpx
 import websockets
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from starlette.websockets import WebSocketState
 
 from bitforge.config import is_ignored, load_settings
 from bitforge.protocol import file_message
@@ -275,7 +276,16 @@ def create_app(config=None):
         await ws.send_json({"type": "view_mode", "mode": state.view_mode})
         _log_connection(state, "broadcast source connected")
         try:
-            while True:
+            # Guard on the live socket state rather than `while True`: a control
+            # message triggers advance_view_mode, whose fan-out sends to this very
+            # socket and, if the client is already gone, reaps it (flipping
+            # application_state to DISCONNECTED). Re-checking here exits cleanly
+            # instead of calling receive_json on a dead socket — which would raise
+            # RuntimeError ("not connected"), not WebSocketDisconnect. There is no
+            # await between this check and receive_json, so the state cannot change
+            # underneath it; a genuine disconnect while blocked in receive_json
+            # still raises WebSocketDisconnect and is handled below.
+            while ws.application_state == WebSocketState.CONNECTED:
                 message = await ws.receive_json()
                 if message.get("type") == "tree":
                     state.current_tree = message.get("tree", [])
