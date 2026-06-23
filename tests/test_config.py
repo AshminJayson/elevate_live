@@ -1,4 +1,4 @@
-from liveclass.config import DEFAULT_IGNORE, Settings, is_ignored
+from bitforge.config import DEFAULT_IGNORE, Settings, is_ignored
 
 
 def _write_env(tmp_path, body):
@@ -11,13 +11,13 @@ def _write_env(tmp_path, body):
 def test_settings_reads_env_file(tmp_path):
     env_file = _write_env(
         tmp_path,
-        'LIVECLASS_TOKEN=secret\n'
-        'LIVECLASS_LESSON_DIR=./lesson\n'
-        'LIVECLASS_TITLE=FastAPI Live\n'
-        'LIVECLASS_IGNORE=[".git/", "*.pyc"]\n'
-        'LIVECLASS_TMUX_SESSION=class\n'
-        'LIVECLASS_COLS=100\n'
-        'LIVECLASS_ROWS=30\n',
+        'BITFORGE_TOKEN=secret\n'
+        'BITFORGE_LESSON_DIR=./lesson\n'
+        'BITFORGE_TITLE=FastAPI Live\n'
+        'BITFORGE_IGNORE=[".git/", "*.pyc"]\n'
+        'BITFORGE_TMUX_SESSION=class\n'
+        'BITFORGE_COLS=100\n'
+        'BITFORGE_ROWS=30\n',
     )
     cfg = Settings(_env_file=env_file)
     assert cfg.token == "secret"
@@ -30,15 +30,15 @@ def test_settings_reads_env_file(tmp_path):
 
 
 def test_settings_env_overrides_dotenv(tmp_path, monkeypatch):
-    env_file = _write_env(tmp_path, "LIVECLASS_TOKEN=from-file\n")
-    monkeypatch.setenv("LIVECLASS_TOKEN", "from-env")
+    env_file = _write_env(tmp_path, "BITFORGE_TOKEN=from-file\n")
+    monkeypatch.setenv("BITFORGE_TOKEN", "from-env")
     cfg = Settings(_env_file=env_file)
     assert cfg.token == "from-env"  # exported env wins over .env
 
 
 def test_settings_defaults(monkeypatch):
-    for key in ("LIVECLASS_TOKEN", "LIVECLASS_IGNORE", "LIVECLASS_COLS",
-                "LIVECLASS_ROWS", "LIVECLASS_TMUX_SESSION"):
+    for key in ("BITFORGE_TOKEN", "BITFORGE_IGNORE", "BITFORGE_COLS",
+                "BITFORGE_ROWS", "BITFORGE_TMUX_SESSION"):
         monkeypatch.delenv(key, raising=False)
     cfg = Settings(_env_file=None)
     assert cfg.token == ""

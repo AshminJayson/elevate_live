@@ -1,0 +1,66 @@
+{
+  "name": "bitforge-live-sync",
+  "displayName": "BitForge Live Sync",
+  "description": "Stream the active editor's unsaved buffer to the BitForge broadcast hub so students follow your typing live.",
+  "version": "0.1.0",
+  "publisher": "bitforge",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "main": "./out/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "bitforge.toggleStreaming",
+        "title": "BitForge: Toggle live streaming"
+      },
+      {
+        "command": "bitforge.reconnect",
+        "title": "BitForge: Reconnect to hub"
+      }
+    ],
+    "configuration": {
+      "title": "BitForge Live Sync",
+      "properties": {
+        "bitforge.serverUrl": {
+          "type": "string",
+          "default": "ws://127.0.0.1:8000",
+          "description": "WebSocket base URL of the BitForge hub. The extension connects to <serverUrl>/ws/teacher."
+        },
+        "bitforge.lessonDir": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path of the lesson directory broadcast to students. Blank uses the first workspace folder."
+        },
+        "bitforge.debounceMs": {
+          "type": "number",
+          "default": 100,
+          "description": "Milliseconds to wait after the last keystroke before sending the buffer (coalesces rapid edits)."
+        },
+        "bitforge.ignore": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [".git/", ".venv/", "venv/", "__pycache__/", "node_modules/", "*.pyc"],
+          "description": "Patterns whose files are never streamed (mirrors the server ignore list)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.0",
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "^5.4.0"
+  }
+}

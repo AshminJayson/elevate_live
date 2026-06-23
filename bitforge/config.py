@@ -1,8 +1,8 @@
-"""Central configuration and the single ignore-matching rule for LiveClass.
+"""Central configuration and the single ignore-matching rule for BitForge.
 
 All configuration lives in one place: a pydantic-settings `Settings` model
 sourced from the process environment and an optional project-root `.env`
-file. Every key shares the `LIVECLASS_` prefix, so a single `.env` is the one
+file. Every key shares the `BITFORGE_` prefix, so a single `.env` is the one
 configuration endpoint. Exported environment variables take precedence over
 `.env` (pydantic-settings' default source priority), so CI/overrides keep
 working.
@@ -28,31 +28,31 @@ DEFAULT_IGNORE = [
 
 
 class Settings(BaseSettings):
-    """Resolved LiveClass configuration, loaded from env / .env.
+    """Resolved BitForge configuration, loaded from env / .env.
 
     Sources, highest priority first: constructor kwargs, environment variables
-    (e.g. LIVECLASS_TOKEN), the project-root `.env` file, then field defaults.
+    (e.g. BITFORGE_TOKEN), the project-root `.env` file, then field defaults.
 
-    Fields (env key is the field name upper-cased with the LIVECLASS_ prefix):
+    Fields (env key is the field name upper-cased with the BITFORGE_ prefix):
         token (str): teacher auth token; "" means no teacher may connect.
-            Env: LIVECLASS_TOKEN.
+            Env: BITFORGE_TOKEN.
         ngrok_domain (str): reserved static ngrok domain, "" to use a random
-            ephemeral URL. Env: LIVECLASS_NGROK_DOMAIN.
+            ephemeral URL. Env: BITFORGE_NGROK_DOMAIN.
         ngrok_authtoken (str): ngrok account credential (from the ngrok
             dashboard), passed to the ngrok agent so it can authenticate; ""
-            falls back to ngrok's own config. Env: LIVECLASS_NGROK_AUTHTOKEN.
+            falls back to ngrok's own config. Env: BITFORGE_NGROK_AUTHTOKEN.
         lesson_dir (Path): absolute directory broadcast to students (resolved
-            from whatever is given). Env: LIVECLASS_LESSON_DIR.
-        title (str): page title. Env: LIVECLASS_TITLE.
+            from whatever is given). Env: BITFORGE_LESSON_DIR.
+        title (str): page title. Env: BITFORGE_TITLE.
         ignore (list[str]): glob/dir patterns hidden from the tree and /file;
-            given in .env as a JSON array. Env: LIVECLASS_IGNORE.
-        tmux_session (str): shared tmux session name. Env: LIVECLASS_TMUX_SESSION.
-        cols (int): fixed terminal width. Env: LIVECLASS_COLS.
-        rows (int): fixed terminal height. Env: LIVECLASS_ROWS.
+            given in .env as a JSON array. Env: BITFORGE_IGNORE.
+        tmux_session (str): shared tmux session name. Env: BITFORGE_TMUX_SESSION.
+        cols (int): fixed terminal width. Env: BITFORGE_COLS.
+        rows (int): fixed terminal height. Env: BITFORGE_ROWS.
     """
 
     model_config = SettingsConfigDict(
-        env_prefix="LIVECLASS_",
+        env_prefix="BITFORGE_",
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     ngrok_domain: str = ""
     ngrok_authtoken: str = ""
     lesson_dir: Path = Path("./lesson")
-    title: str = "LiveClass"
+    title: str = "BitForge"
     ignore: list[str] = DEFAULT_IGNORE
     tmux_session: str = "class"
     cols: int = 100
@@ -81,7 +81,7 @@ def load_settings() -> Settings:
 
     Algorithm:
         Construct a fresh `Settings`, which reads (in priority order) any set
-        LIVECLASS_* environment variables, then `.env` in the current working
+        BITFORGE_* environment variables, then `.env` in the current working
         directory, then field defaults. A fresh instance is returned each call
         so callers that re-read it pick up live `.env` edits (hot reload).
 

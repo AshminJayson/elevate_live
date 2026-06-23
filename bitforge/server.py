@@ -12,7 +12,8 @@ import websockets
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
-from liveclass.config import is_ignored, load_settings
+from bitforge.config import is_ignored, load_settings
+from bitforge.protocol import file_message
 
 # ttyd runs with base path -b /terminal (see run.py), so it serves its page,
 # token, and websocket under /terminal/. The proxy must preserve that prefix.
@@ -35,6 +36,49 @@ class State:
         self.current_tree = []
         self.current_file = None
         self.students = set()
+
+
+def _sanitize_file_message(config, message, ignore):
+    """Validate and normalize an incoming teacher 'file' message; None if rejected.
+
+    The teacher channel is multi-client (the filesystem broadcaster and the VS
+    Code extension both push here), so the server is the single source of truth
+    for path safety and language — never trusting a client to have filtered.
+
+    Algorithm:
+        1. Read message["path"]; reject if it is not a string.
+        2. Resolve lesson_dir/path and reject any path that escapes lesson_dir
+           (path traversal), mirroring the /file endpoint. Existence is NOT
+           required: the buffer may be unsaved, so the file need not be on disk.
+        3. Reject paths matching the ignore list (captured once per connection by
+           the caller; see the teacher handler).
+        4. Return a freshly built file message via protocol.file_message, which
+           re-derives 'language' from the sandbox-relative path — so clients need
+           not send (or be trusted for) the language field.
+
+    Args:
+        config (Settings): resolved configuration (for lesson_dir).
+        message (dict): incoming wire message; expects "path" (str) and
+            "content" (str).
+        ignore (list[str]): ignore patterns to enforce.
+
+    Returns:
+        dict | None: a normalized {"type":"file","path","language","content"}
+            message, or None if the path is missing, escapes lesson_dir, or is
+            ignored.
+    """
+    path = message.get("path")
+    if not isinstance(path, str):
+        return None
+    base = config.lesson_dir.resolve()
+    target = (base / path).resolve()
+    rel = os.path.relpath(target, base)
+    if rel.startswith("..") or os.path.isabs(rel):
+        return None
+    rel_posix = Path(rel).as_posix()
+    if is_ignored(rel_posix, ignore):
+        return None
+    return file_message(rel_posix, message.get("content", ""))
 
 
 async def _broadcast(state, message):
@@ -76,8 +120,18 @@ def create_app(config=None):
         """Authenticate teacher and broadcast state updates to all students.
 
         Validates token (rejects on empty config.token or mismatch with 1008),
-        then loops receiving JSON, updating State (tree/file) and broadcasting
-        to students, removing dead sockets, exiting cleanly on disconnect.
+        then loops receiving JSON. 'tree' messages update the tree and fan out
+        as-is. 'file' messages are validated and normalized via
+        _sanitize_file_message (sandbox + ignore + server-derived language);
+        rejected files are dropped silently (not stored, not broadcast). Removes
+        dead sockets and exits cleanly on disconnect.
+
+        The ignore enforcement here uses the startup config.ignore (no per-
+        message disk read): a teacher streams a 'file' on every keystroke, so
+        re-reading .env per message would be wasteful, and a blocking read in
+        this handler is fragile under concurrent sockets. /file and the broadcast
+        tree still hot-reload the ignore list per request; only this teacher-push
+        defense-in-depth uses the configured list.
 
         Args:
             ws (WebSocket): the teacher connection.
@@ -93,9 +147,13 @@ def create_app(config=None):
                 message = await ws.receive_json()
                 if message.get("type") == "tree":
                     state.current_tree = message.get("tree", [])
+                    await _broadcast(state, message)
                 elif message.get("type") == "file":
-                    state.current_file = message
-                await _broadcast(state, message)
+                    sanitized = _sanitize_file_message(config, message, config.ignore)
+                    if sanitized is None:
+                        continue  # drop unsafe/ignored paths; never store or broadcast
+                    state.current_file = sanitized
+                    await _broadcast(state, sanitized)
         except WebSocketDisconnect:
             pass
 

@@ -3,39 +3,131 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>LiveClass</title>
+    <title>BitForge</title>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.css"
     />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <style>
-      html, body { margin: 0; height: 100%; font-family: ui-monospace, monospace; }
-      #app { display: grid; grid-template-columns: 220px 1fr; grid-template-rows: 32px 1fr; height: 100vh; }
-      #header { grid-column: 1 / 3; display: flex; align-items: center; gap: 12px; padding: 0 12px; background: #1e1e1e; color: #ddd; }
-      #status { margin-left: auto; font-size: 12px; }
-      #explorer { background: #252526; color: #ccc; overflow: auto; user-select: none; }
-      #explorer .node { padding: 2px 10px; cursor: pointer; white-space: nowrap; font-size: 13px; }
-      #explorer .node:hover { background: #2a2d2e; }
-      #explorer .node.active { background: #094771; color: #fff; }
-      #main { display: grid; grid-template-rows: 1fr 35%; min-width: 0; }
-      #code { min-height: 0; }
-      #term { border-top: 1px solid #333; }
-      #term iframe { width: 100%; height: 100%; border: 0; }
-      #livebar { display: none; gap: 8px; align-items: center; font-size: 12px; }
+      :root {
+        --base: #0e0e10;
+        --iron: #16161a;
+        --raised: #1e1e22;
+        --seam: #2a2a30;
+        --text: #e8e6e3;
+        --muted: #8a8a93;
+        --ember: #ff7a18;
+        --ember-2: #e2552c;
+        --ember-dim: #b4451f;
+        --spark: #ffc56e;
+        --display: "Saira Condensed", ui-sans-serif, system-ui, sans-serif;
+        --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: var(--base); color: var(--text); font-family: var(--mono); }
+      *::selection { background: rgba(255, 122, 24, 0.28); }
+
+      #app {
+        display: grid;
+        grid-template-columns: 240px 1fr;
+        grid-template-rows: 44px 1fr;
+        height: 100vh;
+      }
+
+      /* ---- header ---- */
+      #header {
+        grid-column: 1 / 3;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 0 16px;
+        background: var(--iron);
+        border-bottom: 1px solid var(--ember-dim);
+      }
+      #brand {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-family: var(--display);
+        font-weight: 700;
+        font-size: 20px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--text);
+      }
+      #brand .spark {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: radial-gradient(circle at 35% 35%, var(--spark), var(--ember-2));
+        box-shadow: 0 0 8px var(--ember);
+      }
+      #filename { font-size: 12px; color: var(--muted); letter-spacing: 0.02em; }
+
+      /* live-state: the signature hot-metal indicator */
+      #status { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+      #status .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--seam); }
+      #status.forging { color: var(--text); }
+      #status.forging .dot { background: radial-gradient(circle at 35% 35%, var(--spark), var(--ember-2)); box-shadow: 0 0 6px var(--ember), 0 0 14px rgba(255, 122, 24, 0.55); animation: pulse 1.8s ease-in-out infinite; }
+      #status.igniting .dot { background: var(--spark); animation: pulse 0.7s ease-in-out infinite; }
+      #status.cooling .dot { background: var(--ember-dim); opacity: 0.6; }
+      @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.35); opacity: 0.65; } }
+
+      #livebar { display: none; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; }
       #livebar.show { display: flex; }
-      button { font: inherit; font-size: 12px; }
-      * { user-select: text; }
+
+      button {
+        font: inherit; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+        color: var(--text); background: transparent; border: 1px solid var(--seam);
+        border-radius: 4px; padding: 4px 10px; cursor: pointer;
+      }
+      button:hover { border-color: var(--ember-dim); color: var(--spark); }
+      button:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+      #return { border-color: var(--ember-dim); color: var(--spark); }
+
+      /* ---- explorer ---- */
+      #explorer { background: var(--iron); border-right: 1px solid var(--seam); overflow: auto; }
+      #explorer .eyebrow { padding: 12px 14px 6px; font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--muted); }
+      #explorer .node { padding: 3px 12px; cursor: pointer; white-space: nowrap; font-size: 13px; color: #cfcdc9; border-left: 2px solid transparent; }
+      #explorer .node:hover { background: var(--raised); }
+      #explorer .node.active { background: linear-gradient(90deg, rgba(255, 122, 24, 0.16), transparent); border-left-color: var(--ember); color: #fff; }
+      #explorer .node .dir { color: var(--muted); }
+
+      /* ---- main / panes ---- */
+      #main { display: grid; grid-template-rows: 1fr 38%; min-width: 0; }
+      #code { min-height: 0; }
+      #term { border-top: 1px solid var(--seam); background: var(--base); min-height: 0; }
+      #term iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+      /* ---- terminal-only mode ---- */
+      #app.terminal-only { grid-template-columns: 1fr; }
+      #app.terminal-only #explorer, #app.terminal-only #code, #app.terminal-only #filename, #app.terminal-only #livebar { display: none; }
+      #app.terminal-only #main { grid-template-rows: 1fr; }
+      #app.terminal-only #term { border-top: 0; }
+
+      @media (max-width: 720px) {
+        #app { grid-template-columns: 1fr; }
+        #explorer { display: none; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #status .dot { animation: none !important; }
+      }
     </style>
   </head>
   <body>
     <div id="app">
       <div id="header">
-        <span id="title">LiveClass</span>
+        <span id="brand"><span class="spark"></span><span id="wordmark">BITFORGE</span></span>
         <span id="filename"></span>
         <span id="livebar"><span>browsing</span><button id="return">return to live</button></span>
-        <span id="status">connecting…</span>
+        <span id="status"><span class="dot"></span><span id="statustext">igniting</span></span>
+        <button id="termonly" title="Toggle terminal-only view">terminal</button>
       </div>
-      <div id="explorer"></div>
+      <div id="explorer"><div class="eyebrow">Files</div></div>
       <div id="main">
         <div id="code"></div>
         <div id="term"><iframe src="/terminal/" title="terminal"></iframe></div>
@@ -45,20 +137,38 @@
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
     <script>
       let editor = null;
-      let liveFile = null;     // last file message from the teacher
-      let browsing = false;    // true when viewing a clicked file
+      let liveFile = null; // last file message from the teacher
+      let browsing = false; // true when viewing a clicked file
       let reconnectDelay = 1000;
 
       require.config({ paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs" } });
       require(["vs/editor/editor.main"], () => {
+        monaco.editor.defineTheme("bitforge", {
+          base: "vs-dark",
+          inherit: true,
+          rules: [],
+          colors: {
+            "editor.background": "#0e0e10",
+            "editorGutter.background": "#0e0e10",
+            "editorCursor.foreground": "#ff7a18",
+            "editor.selectionBackground": "#3a2a1f",
+            "editor.lineHighlightBackground": "#16161a",
+            "editorLineNumber.foreground": "#5a5a62",
+          },
+        });
         editor = monaco.editor.create(document.getElementById("code"), {
           value: "", language: "plaintext", readOnly: true, automaticLayout: true,
-          theme: "vs-dark", minimap: { enabled: false },
+          theme: "bitforge", minimap: { enabled: false }, fontFamily: "ui-monospace, monospace",
         });
         connect();
       });
 
-      function setStatus(text) { document.getElementById("status").textContent = text; }
+      // The live indicator speaks the forge metaphor and encodes connection state.
+      function setStatus(state, text) {
+        const el = document.getElementById("status");
+        el.className = state; // "igniting" | "forging" | "cooling"
+        document.getElementById("statustext").textContent = text;
+      }
 
       function showFile(msg) {
         document.getElementById("filename").textContent = msg.path;
@@ -75,14 +185,16 @@
       }
 
       function renderTree(nodes, container, depth) {
-        if (!depth) container.innerHTML = "";
+        if (!depth) container.innerHTML = '<div class="eyebrow">Files</div>';
         for (const node of nodes) {
           const el = document.createElement("div");
           el.className = "node";
           el.dataset.path = node.path;
-          el.style.paddingLeft = 10 + depth * 14 + "px";
-          el.textContent = (node.type === "dir" ? "▾ " : "  ") + node.name;
-          if (node.type === "file") {
+          el.style.paddingLeft = 12 + depth * 14 + "px";
+          if (node.type === "dir") {
+            el.innerHTML = '<span class="dir">' + "▾ " + node.name + "</span>";
+          } else {
+            el.textContent = "  " + node.name;
             el.onclick = () => browseFile(node.path);
           }
           container.appendChild(el);
@@ -114,8 +226,8 @@
       function connect() {
         const proto = location.protocol === "https:" ? "wss" : "ws";
         const ws = new WebSocket(proto + "://" + location.host + "/ws/student");
-        ws.onopen = () => { setStatus("● live"); reconnectDelay = 1000; };
-        ws.onclose = () => { setStatus("reconnecting…"); setTimeout(connect, reconnectDelay); reconnectDelay = Math.min(reconnectDelay * 2, 30000); };
+        ws.onopen = () => { setStatus("forging", "forging"); reconnectDelay = 1000; };
+        ws.onclose = () => { setStatus("cooling", "cooling"); setTimeout(connect, reconnectDelay); reconnectDelay = Math.min(reconnectDelay * 2, 30000); };
         ws.onmessage = (ev) => {
           const msg = JSON.parse(ev.data);
           if (msg.type === "tree") {
@@ -127,7 +239,17 @@
         };
       }
 
-      document.getElementById("title").textContent = document.title;
+      // ---- terminal-only mode: localStorage + #terminal hash (hash wins) ----
+      function setTerminalOnly(on) {
+        document.getElementById("app").classList.toggle("terminal-only", on);
+        document.getElementById("termonly").textContent = on ? "show code" : "terminal";
+        localStorage.setItem("bitforge.terminalOnly", on ? "1" : "0");
+      }
+      document.getElementById("termonly").onclick = () => {
+        setTerminalOnly(!document.getElementById("app").classList.contains("terminal-only"));
+      };
+      window.addEventListener("hashchange", () => setTerminalOnly(location.hash === "#terminal"));
+      setTerminalOnly(location.hash === "#terminal" || localStorage.getItem("bitforge.terminalOnly") === "1");
     </script>
   </body>
 </html>

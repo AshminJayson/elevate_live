@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from liveclass.config import is_ignored
+from bitforge.config import is_ignored
 
 
 def build_tree(lesson_dir, ignore):

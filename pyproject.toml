@@ -3,7 +3,7 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "liveclass"
+name = "bitforge"
 version = "0.1.0"
 description = "View-only live code/terminal broadcast for teaching"
 requires-python = ">=3.11"
@@ -21,7 +21,7 @@ dev = ["pytest", "pytest-asyncio"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["liveclass*"]
+include = ["bitforge*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

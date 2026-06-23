@@ -1,6 +1,6 @@
 """Tests for broadcaster: file-watcher and tree/file message builders."""
 
-from liveclass.broadcaster import make_file_message, make_tree_message
+from bitforge.broadcaster import coalesce_burst, make_file_message, make_tree_message
 
 
 def test_make_file_message(tmp_path):
@@ -33,3 +33,27 @@ def test_make_tree_message(tmp_path):
     msg = make_tree_message(tmp_path, [])
     assert msg["type"] == "tree"
     assert msg["tree"][0]["path"] == "main.py"
+
+
+def test_coalesce_burst_keeps_file_after_leading_tree_event():
+    """An atomic save (write-temp + rename) emits a burst that leads with a
+    create ('tree') event and ends with the real file modify; the file path
+    must survive coalescing so its content is still broadcast."""
+    burst = [
+        ("tree", "main.py.tmp"),
+        ("file", "main.py.tmp"),
+        ("tree", "main.py.tmp"),
+        ("file", "main.py"),
+    ]
+    assert coalesce_burst(burst) == ["main.py.tmp", "main.py"]
+
+
+def test_coalesce_burst_dedups_keeping_latest_occurrence():
+    """A file edited twice in one burst is sent once, ordered by last touch so
+    the most recently changed file is the active (last-sent) one."""
+    assert coalesce_burst([("file", "a.py"), ("file", "b.py"), ("file", "a.py")]) == ["b.py", "a.py"]
+
+
+def test_coalesce_burst_drops_tree_only_and_empty_paths():
+    """Tree-only bursts (creates/deletes/moves) yield no file resends."""
+    assert coalesce_burst([("tree", ""), ("tree", "pkg")]) == []

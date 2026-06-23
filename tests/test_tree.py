@@ -1,4 +1,4 @@
-from liveclass.tree import build_tree
+from bitforge.tree import build_tree
 
 
 def _make_lesson(tmp_path):

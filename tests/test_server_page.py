@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from liveclass.config import Settings
-from liveclass.server import create_app
+from bitforge.config import Settings
+from bitforge.server import create_app
 
 _INDEX_HTML = Path(__file__).resolve().parent.parent / "static" / "index.html"
 

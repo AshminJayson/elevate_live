@@ -13,9 +13,9 @@ import websockets
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from liveclass.config import is_ignored, load_settings
-from liveclass.protocol import file_message, tree_message
-from liveclass.tree import build_tree
+from bitforge.config import is_ignored, load_settings
+from bitforge.protocol import file_message, tree_message
+from bitforge.tree import build_tree
 
 
 def make_tree_message(lesson_dir, ignore):
@@ -56,6 +56,37 @@ def make_file_message(lesson_dir, rel_path, ignore):
     except (UnicodeDecodeError, OSError):
         return None
     return file_message(rel_path, content)
+
+
+def coalesce_burst(events):
+    """Reduce a burst of change events to the file paths whose content to resend.
+
+    Algorithm:
+        A single save often arrives as a burst of events. In particular an
+        atomic save (editor writes a temp file then renames it over the target,
+        as Vim and VS Code do) emits a create + several modifies + a delete,
+        leading with a 'tree' event. Walk the burst in arrival order and keep
+        every 'file' event's rel_path, de-duplicated to its last occurrence, so
+        a leading 'tree' event can never crowd out the real file update and the
+        most recently touched file ends up last (the active file). The caller
+        always resends the tree separately, so 'tree' events need no path here.
+
+    Args:
+        events (list[tuple[str, str]]): (kind, rel_path) events in arrival
+            order; kind is "file" or "tree", rel_path is POSIX-relative ("" for
+            tree-wide changes).
+
+    Returns:
+        list[str]: distinct non-empty rel_paths of modified files to resend,
+            in last-touched order.
+    """
+    paths = []
+    for kind, rel in events:
+        if kind == "file" and rel:
+            if rel in paths:
+                paths.remove(rel)
+            paths.append(rel)
+    return paths
 
 
 class _Handler(FileSystemEventHandler):
@@ -170,14 +201,21 @@ async def run(config):
                 await ws.send(_json(make_tree_message(config.lesson_dir, config.ignore)))
 
                 async def _pump():
-                    """Drain debounced change events, pushing file/tree messages forever."""
+                    """Drain debounced change events, pushing file/tree messages forever.
+
+                    On each burst: wait one debounce window, drain every queued
+                    event, then resend the content of each distinct modified file
+                    (via coalesce_burst, so an atomic-save burst that leads with a
+                    create/'tree' event never drops the file update) and finally
+                    resend the tree."""
                     while True:
-                        kind, rel = await queue.get()
-                        await asyncio.sleep(0.1)  # debounce
+                        first = await queue.get()
+                        await asyncio.sleep(0.1)  # debounce: let the rest of the burst arrive
+                        burst = [first]
                         while not queue.empty():
-                            queue.get_nowait()
-                        if kind == "file":
-                            msg = make_file_message(config.lesson_dir, rel, config.ignore)
+                            burst.append(queue.get_nowait())
+                        for rel_path in coalesce_burst(burst):
+                            msg = make_file_message(config.lesson_dir, rel_path, config.ignore)
                             if msg is not None:
                                 await ws.send(_json(msg))
                         await ws.send(_json(make_tree_message(config.lesson_dir, config.ignore)))

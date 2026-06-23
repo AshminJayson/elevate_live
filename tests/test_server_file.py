@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
-from liveclass.config import Settings
-from liveclass.server import create_app
+from bitforge.config import Settings
+from bitforge.server import create_app
 
 
 def _setup(tmp_path, monkeypatch, ignore_json="[]"):
@@ -17,9 +17,9 @@ def _setup(tmp_path, monkeypatch, ignore_json="[]"):
     (lesson / ".env").write_text("API_KEY=changeme")  # lesson content, shown by design
     (lesson / "secret.py").write_text("TOKEN=abc")
     (tmp_path / ".env").write_text(  # central config; distinct from lesson/.env
-        "LIVECLASS_TOKEN=secret\n"
-        f"LIVECLASS_LESSON_DIR={lesson.as_posix()}\n"
-        f"LIVECLASS_IGNORE={ignore_json}\n"
+        "BITFORGE_TOKEN=secret\n"
+        f"BITFORGE_LESSON_DIR={lesson.as_posix()}\n"
+        f"BITFORGE_IGNORE={ignore_json}\n"
     )
     monkeypatch.chdir(tmp_path)
     return TestClient(create_app(Settings())), lesson
@@ -52,8 +52,8 @@ def test_file_rejects_ignored_after_hot_reload(tmp_path, monkeypatch):
     assert client.get("/file", params={"path": "secret.py"}).status_code == 200
     # hot-edit the central .env to hide secret.py; /file reloads it per request
     (tmp_path / ".env").write_text(
-        "LIVECLASS_TOKEN=secret\n"
-        f"LIVECLASS_LESSON_DIR={(tmp_path / 'lesson').as_posix()}\n"
-        'LIVECLASS_IGNORE=["secret.py"]\n'
+        "BITFORGE_TOKEN=secret\n"
+        f"BITFORGE_LESSON_DIR={(tmp_path / 'lesson').as_posix()}\n"
+        'BITFORGE_IGNORE=["secret.py"]\n'
     )
     assert client.get("/file", params={"path": "secret.py"}).status_code == 404

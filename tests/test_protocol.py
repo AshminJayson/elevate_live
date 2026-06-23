@@ -1,4 +1,4 @@
-from liveclass.protocol import detect_language, file_message, tree_message
+from bitforge.protocol import detect_language, file_message, tree_message
 
 
 def test_detect_language_known():
