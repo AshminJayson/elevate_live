@@ -1,0 +1,20 @@
+# liveclass.toml — edit any time; changes apply live, no restart needed.
+
+[broadcast]
+lesson_dir = "./lesson"
+title      = "FastAPI Live"
+
+# Glob patterns excluded from BOTH the file tree and /file fetches.
+# Defaults exclude only noise/danger; dotfiles like .env are SHOWN (e2e teaching).
+ignore = [
+  ".git/",
+  ".venv/", "venv/",
+  "__pycache__/",
+  "node_modules/",
+  "*.pyc",
+]
+
+[terminal]
+tmux_session = "class"
+cols = 100
+rows = 30
