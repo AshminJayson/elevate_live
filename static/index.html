@@ -47,6 +47,7 @@
       let editor = null;
       let liveFile = null;     // last file message from the teacher
       let browsing = false;    // true when viewing a clicked file
+      let reconnectDelay = 1000;
 
       require.config({ paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs" } });
       require(["vs/editor/editor.main"], () => {
@@ -74,7 +75,7 @@
       }
 
       function renderTree(nodes, container, depth) {
-        container.innerHTML = depth ? container.innerHTML : "";
+        if (!depth) container.innerHTML = "";
         for (const node of nodes) {
           const el = document.createElement("div");
           el.className = "node";
@@ -99,7 +100,7 @@
         browsing = true;
         document.getElementById("livebar").classList.add("show");
         const ext = path.split(".").pop();
-        const lang = { py: "python", js: "javascript", ts: "typescript", json: "json", html: "html", css: "css", md: "markdown", toml: "ini", yaml: "yaml", yml: "yaml" }[ext] || "plaintext";
+        const lang = { py: "python", js: "javascript", ts: "typescript", json: "json", html: "html", css: "css", md: "markdown", toml: "ini", // Monaco has no toml grammar; ini is the closest available yaml: "yaml", yml: "yaml" }[ext] || "plaintext";
         showFile({ path, language: lang, content });
       }
 
@@ -112,8 +113,8 @@
       function connect() {
         const proto = location.protocol === "https:" ? "wss" : "ws";
         const ws = new WebSocket(proto + "://" + location.host + "/ws/student");
-        ws.onopen = () => setStatus("● live");
-        ws.onclose = () => { setStatus("reconnecting…"); setTimeout(connect, 1500); };
+        ws.onopen = () => { setStatus("● live"); reconnectDelay = 1000; };
+        ws.onclose = () => { setStatus("reconnecting…"); setTimeout(connect, reconnectDelay); reconnectDelay = Math.min(reconnectDelay * 2, 30000); };
         ws.onmessage = (ev) => {
           const msg = JSON.parse(ev.data);
           if (msg.type === "tree") {
