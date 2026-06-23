@@ -11,6 +11,7 @@ View-only live broadcast of code, file tree, and terminal for teaching.
 
     export LIVECLASS_TOKEN=some-shared-secret
     export NGROK_DOMAIN=your-reserved.ngrok-free.dev   # optional
+    export LIVECLASS_CONFIG=liveclass.toml             # optional; overrides config file path
     make up
 
 Then attach your editor's terminal to the shared tmux session:
