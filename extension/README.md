@@ -14,14 +14,18 @@ the same channel and protocol the broadcaster uses. The server validates the pat
 
 ## Configure
 
-The token is read from the workspace-root `.env` (`BITFORGE_TOKEN`) so it is never
-committed. Everything else is VS Code settings (set per-workspace in
-`.vscode/settings.json`):
+The teacher **token** is entered via a prompt the first time you stream and kept
+in VS Code **SecretStorage** (OS keychain) — never in a file, never synced, and
+not tied to any project. Commands: **BitForge: Set token** / **Clear token**. If
+the hub rejects it, you'll be asked to enter it again. (No `.env` is required in
+the project you open.)
+
+Everything else is VS Code settings (per-workspace in `.vscode/settings.json`):
 
 | Setting | Default | Purpose |
 |---|---|---|
 | `bitforge.serverUrl` | `ws://127.0.0.1:8000` | Hub base; connects to `<serverUrl>/ws/teacher`. |
-| `bitforge.lessonDir` | _(first workspace folder)_ | Lesson root; only files under it stream. |
+| `bitforge.lessonDir` | _(workspace folder, or `BITFORGE_LESSON_DIR` from a workspace `.env`)_ | Lesson root; only files under it stream. |
 | `bitforge.debounceMs` | `100` | Debounce window after the last keystroke. |
 | `bitforge.ignore` | see settings | Patterns never streamed (mirrors the server). |
 

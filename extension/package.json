@@ -23,6 +23,14 @@
       {
         "command": "bitforge.reconnect",
         "title": "BitForge: Reconnect to hub"
+      },
+      {
+        "command": "bitforge.setToken",
+        "title": "BitForge: Set token"
+      },
+      {
+        "command": "bitforge.clearToken",
+        "title": "BitForge: Clear token"
       }
     ],
     "configuration": {

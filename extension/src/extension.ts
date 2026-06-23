@@ -3,30 +3,35 @@ import { BitForgeConfig, loadConfig } from "./config";
 import { ConnState, TeacherConnection } from "./connection";
 import { isIgnored, toLessonRelative } from "./paths";
 
+const TOKEN_KEY = "bitforge.token";
+
+let context: vscode.ExtensionContext;
 let connection: TeacherConnection | null = null;
 let status: vscode.StatusBarItem;
 let debounceTimer: NodeJS.Timeout | null = null;
 let config: BitForgeConfig | null = null;
 
 /**
- * Activate the extension: load config, connect, and stream the active buffer.
+ * Activate the extension: wire the status bar, listeners, commands, and connect.
  *
- * Registers listeners for document edits and active-editor changes; both feed a
- * debounced send of the active editor's UNSAVED buffer (so students follow the
- * teacher's typing without a save). Streams only files under lessonDir that are
- * not ignored. The server re-derives language and re-checks the sandbox/ignore,
- * so the wire message is just {type:"file", path, content}.
+ * The teacher token is entered via a prompt and stored in VS Code SecretStorage
+ * (OS keychain), not a .env file — so the extension works in any opened project
+ * with no per-project secret file. Edits and active-editor changes feed a
+ * debounced send of the UNSAVED buffer; the server re-derives language and
+ * re-checks the sandbox/ignore, so the wire message is just {type,path,content}.
  *
- * @param context the extension context (subscriptions are disposed on shutdown)
+ * @param ctx the extension context (provides SecretStorage; subscriptions are
+ *   disposed on shutdown)
  */
-export function activate(context: vscode.ExtensionContext): void {
+export function activate(ctx: vscode.ExtensionContext): void {
+  context = ctx;
   status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   status.command = "bitforge.toggleStreaming";
-  context.subscriptions.push(status);
+  ctx.subscriptions.push(status);
 
-  start();
+  void start();
 
-  context.subscriptions.push(
+  ctx.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document === vscode.window.activeTextEditor?.document) {
         scheduleStream();
@@ -35,11 +40,13 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.onDidChangeActiveTextEditor(() => scheduleStream()),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("bitforge")) {
-        restart();
+        void restart();
       }
     }),
     vscode.commands.registerCommand("bitforge.toggleStreaming", toggle),
-    vscode.commands.registerCommand("bitforge.reconnect", restart)
+    vscode.commands.registerCommand("bitforge.reconnect", () => void restart()),
+    vscode.commands.registerCommand("bitforge.setToken", setToken),
+    vscode.commands.registerCommand("bitforge.clearToken", clearToken)
   );
 }
 
@@ -48,16 +55,51 @@ export function deactivate(): void {
   stop();
 }
 
-/** Load config and open the teacher connection; no-op if config is incomplete. */
-function start(): void {
+/**
+ * Get the teacher token from SecretStorage, prompting once if it is missing.
+ *
+ * @param promptIfMissing when true, show an input box and store what is entered
+ * @returns the token, or "" if unset and not entered
+ */
+async function getToken(promptIfMissing: boolean): Promise<string> {
+  let token = await context.secrets.get(TOKEN_KEY);
+  if (!token && promptIfMissing) {
+    token = await promptForToken();
+  }
+  return token || "";
+}
+
+/** Prompt for the token (masked) and store it in SecretStorage; returns it. */
+async function promptForToken(): Promise<string> {
+  const value = await vscode.window.showInputBox({
+    title: "BitForge teacher token",
+    prompt: "Enter the teacher token (matches the hub's BITFORGE_TOKEN). Stored securely in VS Code.",
+    password: true,
+    ignoreFocusOut: true,
+  });
+  if (value) {
+    await context.secrets.store(TOKEN_KEY, value);
+  }
+  return value || "";
+}
+
+/** Load config + token and open the teacher connection. */
+async function start(): Promise<void> {
   config = loadConfig();
   if (!config) {
     setStatus("stopped");
     return;
   }
+  const token = await getToken(true);
+  if (!token) {
+    setStatus("stopped");
+    vscode.window.showWarningMessage("BitForge: no token set — streaming is off. Run 'BitForge: Set token'.");
+    return;
+  }
   connection = new TeacherConnection(
-    `${config.serverUrl}/ws/teacher?token=${encodeURIComponent(config.token)}`,
-    setStatus
+    `${config.serverUrl}/ws/teacher?token=${encodeURIComponent(token)}`,
+    setStatus,
+    onAuthRejected
   );
   connection.connect();
   scheduleStream(); // push the current file immediately on (re)start
@@ -75,10 +117,10 @@ function stop(): void {
   }
 }
 
-/** Stop then start, e.g. after a settings change or a manual reconnect. */
-function restart(): void {
+/** Stop then start, e.g. after a settings change, token change, or reconnect. */
+async function restart(): Promise<void> {
   stop();
-  start();
+  await start();
 }
 
 /** Toggle streaming on/off from the status bar or command palette. */
@@ -87,7 +129,36 @@ function toggle(): void {
     stop();
     setStatus("stopped");
   } else {
-    start();
+    void start();
+  }
+}
+
+/** Command: (re)enter the token, then reconnect with it. */
+async function setToken(): Promise<void> {
+  const token = await promptForToken();
+  if (token) {
+    await restart();
+  }
+}
+
+/** Command: forget the stored token and stop streaming. */
+async function clearToken(): Promise<void> {
+  await context.secrets.delete(TOKEN_KEY);
+  stop();
+  setStatus("stopped");
+  vscode.window.showInformationMessage("BitForge: token cleared.");
+}
+
+/** Hub rejected the token (1008): forget it and offer to enter a new one. */
+async function onAuthRejected(): Promise<void> {
+  await context.secrets.delete(TOKEN_KEY);
+  setStatus("stopped");
+  const pick = await vscode.window.showErrorMessage(
+    "BitForge: the hub rejected the token.",
+    "Enter token"
+  );
+  if (pick === "Enter token") {
+    await restart();
   }
 }
 

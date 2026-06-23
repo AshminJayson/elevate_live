@@ -20,10 +20,13 @@ export class TeacherConnection {
   /**
    * @param url full teacher URL, e.g. "ws://127.0.0.1:8000/ws/teacher?token=..."
    * @param onState callback invoked whenever the connection state changes
+   * @param onAuthRejected callback invoked when the hub closes with 1008 (bad
+   *   token); reconnecting would just loop, so the caller re-prompts instead
    */
   constructor(
     private readonly url: string,
-    private readonly onState: (state: ConnState) => void
+    private readonly onState: (state: ConnState) => void,
+    private readonly onAuthRejected: () => void
   ) {}
 
   /** Open the socket (idempotent); schedules a retry on close/error. */
@@ -36,7 +39,17 @@ export class TeacherConnection {
       this.delay = 1000;
       this.onState("live");
     });
-    ws.on("close", () => this.scheduleReconnect());
+    ws.on("close", (code: number) => {
+      if (code === 1008) {
+        // token rejected by the hub: stop looping and let the caller re-prompt
+        this.stopped = true;
+        this.ws = null;
+        this.onState("stopped");
+        this.onAuthRejected();
+        return;
+      }
+      this.scheduleReconnect();
+    });
     ws.on("error", () => {
       // surfaced via the close handler that follows; avoid crashing the host
       try {
