@@ -38,6 +38,9 @@ class Settings(BaseSettings):
             Env: LIVECLASS_TOKEN.
         ngrok_domain (str): reserved static ngrok domain, "" to use a random
             ephemeral URL. Env: LIVECLASS_NGROK_DOMAIN.
+        ngrok_authtoken (str): ngrok account credential (from the ngrok
+            dashboard), passed to the ngrok agent so it can authenticate; ""
+            falls back to ngrok's own config. Env: LIVECLASS_NGROK_AUTHTOKEN.
         lesson_dir (Path): absolute directory broadcast to students (resolved
             from whatever is given). Env: LIVECLASS_LESSON_DIR.
         title (str): page title. Env: LIVECLASS_TITLE.
@@ -58,6 +61,7 @@ class Settings(BaseSettings):
 
     token: str = ""
     ngrok_domain: str = ""
+    ngrok_authtoken: str = ""
     lesson_dir: Path = Path("./lesson")
     title: str = "LiveClass"
     ignore: list[str] = DEFAULT_IGNORE

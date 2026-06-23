@@ -9,7 +9,8 @@ Algorithm:
     6. Wait; on Ctrl-C, terminate all children.
 
 Configuration comes from env / a project-root .env (see liveclass.config.Settings);
-LIVECLASS_TOKEN is required, LIVECLASS_NGROK_DOMAIN is optional.
+LIVECLASS_TOKEN is required, LIVECLASS_NGROK_DOMAIN and LIVECLASS_NGROK_AUTHTOKEN
+are optional (the authtoken authenticates the ngrok agent via NGROK_AUTHTOKEN).
 """
 
 import os
@@ -117,7 +118,12 @@ def main():
     ngrok_cmd = ["ngrok", "http", "8000"]
     if domain:
         ngrok_cmd = ["ngrok", "http", f"--domain={domain}", "8000"]
-    procs.append(subprocess.Popen(ngrok_cmd, start_new_session=True))
+    # ngrok reads its account credential from NGROK_AUTHTOKEN when set, so a
+    # token in .env authenticates the agent without touching ngrok's own config.
+    ngrok_env = os.environ.copy()
+    if cfg.ngrok_authtoken:
+        ngrok_env["NGROK_AUTHTOKEN"] = cfg.ngrok_authtoken
+    procs.append(subprocess.Popen(ngrok_cmd, start_new_session=True, env=ngrok_env))
 
     print("LiveClass up. Attach your editor terminal with:")
     print(f"  tmux attach -t {cfg.tmux_session}")
