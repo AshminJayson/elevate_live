@@ -1,8 +1,34 @@
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
 from bitforge.config import Settings
 from bitforge.server import create_app
+
+
+def _wait_until(predicate, timeout=2.0, interval=0.01):
+    """Poll predicate until it is truthy or the timeout elapses; return its final value.
+
+    TestClient runs the ASGI app on a separate event-loop thread per websocket,
+    so a message a host just sent is processed asynchronously — the main test
+    thread must wait for the server to apply it before asserting on shared state.
+
+    Args:
+        predicate (Callable[[], bool]): condition to poll (e.g. state is stored).
+        timeout (float): max seconds to wait.
+        interval (float): seconds slept between polls (yields the GIL so the
+            server thread can run).
+
+    Returns:
+        bool: the predicate's final truthiness.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval)
+    return bool(predicate())
 
 
 # Live host->viewer fan-out needs both sockets on one event loop. Starlette's
@@ -125,7 +151,10 @@ def test_late_joiner_gets_current_state(tmp_path):
     with client.websocket_connect("/ws/host?token=secret") as host:
         host.send_json({"type": "tree", "tree": [{"name": "main.py", "path": "main.py", "type": "file"}]})
         host.send_json({"type": "file", "path": "main.py", "language": "python", "content": "x=1"})
-        # give the server a moment to store state
+        # Wait until the server has actually stored the file before a viewer
+        # joins, so the late-joiner state burst is deterministic: the viewer
+        # then receives tree, file, view_mode in that order.
+        assert _wait_until(lambda: app.state.live.current_file is not None)
         with client.websocket_connect("/ws/viewer") as viewer:
             got_tree = viewer.receive_json()
             got_file = viewer.receive_json()
