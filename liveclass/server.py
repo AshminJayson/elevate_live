@@ -4,8 +4,10 @@ Later tasks add the /file endpoint, the /terminal proxy, and GET / page.
 """
 
 import os
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status
+from fastapi.responses import PlainTextResponse
 
 from liveclass.config import Config, load_config
 
@@ -112,6 +114,36 @@ def create_app(config=None):
             pass
         finally:
             state.students.discard(ws)
+
+    @app.get("/file", response_class=PlainTextResponse)
+    async def file(path: str):
+        """Serve a single lesson file as plain text, sandboxed and ignore-aware.
+
+        Algorithm:
+            1. Reload the ignore list from disk so hot-edits to liveclass.toml
+               take effect immediately (enforcement never depends on a message).
+            2. Resolve lesson_dir/path; reject (404) if it escapes lesson_dir.
+            3. Reject (404) if missing, a directory, or ignored.
+            4. Return the file text.
+
+        Args:
+            path (str): POSIX-relative path under lesson_dir.
+
+        Returns:
+            PlainTextResponse: file content, or 404 on any rejection.
+        """
+        from liveclass.config import is_ignored, load_config
+
+        fresh = load_config(os.environ.get("LIVECLASS_CONFIG", "liveclass.toml"), token=config.token)
+        ignore = fresh.ignore
+        base = config.lesson_dir.resolve()
+        target = (base / path).resolve()
+        rel = os.path.relpath(target, base)
+        if rel.startswith("..") or os.path.isabs(rel):
+            return PlainTextResponse("not found", status_code=404)
+        if not target.is_file() or is_ignored(Path(rel).as_posix(), ignore):
+            return PlainTextResponse("not found", status_code=404)
+        return PlainTextResponse(target.read_text())
 
     return app
 
