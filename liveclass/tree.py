@@ -27,6 +27,14 @@ def build_tree(lesson_dir, ignore):
     root = Path(lesson_dir)
 
     def walk(directory):
+        """Recursively build sorted tree nodes for one directory, skipping ignored paths.
+
+        Args:
+            directory (Path): directory to list.
+
+        Returns:
+            list[dict]: tree nodes for this level (dirs before files, each alphabetical).
+        """
         entries = sorted(
             directory.iterdir(),
             key=lambda p: (p.is_file(), p.name.lower()),
