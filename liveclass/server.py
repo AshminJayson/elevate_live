@@ -6,10 +6,16 @@ Later tasks add the /terminal proxy and GET / page.
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status
-from fastapi.responses import PlainTextResponse
+import httpx
+import websockets
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, status
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
 from liveclass.config import Config, load_config
+
+TTYD_HTTP = "http://127.0.0.1:7681"
+TTYD_WS = "ws://127.0.0.1:7681/ws"
+_STATIC = Path(__file__).resolve().parent.parent / "static"
 
 
 class State:
@@ -144,6 +150,53 @@ def create_app(config=None):
         if not target.is_file() or is_ignored(Path(rel).as_posix(), ignore):
             return PlainTextResponse("not found", status_code=404)
         return PlainTextResponse(target.read_text())
+
+    @app.get("/", response_class=HTMLResponse)
+    async def index():
+        """Serve the student page HTML (static/index.html)."""
+        return HTMLResponse((_STATIC / "index.html").read_text())
+
+    @app.websocket("/terminal/ws")
+    async def terminal_ws(ws: WebSocket):
+        """Reverse-proxy the student terminal WebSocket to ttyd (read-only).
+
+        Pumps frames both directions between the student and ttyd, preserving
+        ttyd's 'tty' subprotocol. ttyd itself enforces read-only (no -W,
+        tmux attach -r), so nothing students send can affect the host.
+        """
+        await ws.accept(subprotocol="tty")
+        async with websockets.connect(TTYD_WS, subprotocols=["tty"], open_timeout=5) as upstream:
+            import asyncio
+
+            async def to_upstream():
+                while True:
+                    data = await ws.receive_bytes()
+                    await upstream.send(data)
+
+            async def to_client():
+                async for data in upstream:
+                    if isinstance(data, str):
+                        await ws.send_text(data)
+                    else:
+                        await ws.send_bytes(data)
+
+            done, pending = await asyncio.wait(
+                [asyncio.create_task(to_upstream()), asyncio.create_task(to_client())],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+
+    @app.get("/terminal/{path:path}")
+    async def terminal_http(path: str, request: Request):
+        """Reverse-proxy ttyd's HTTP assets (its xterm.js page) under /terminal/."""
+        async with httpx.AsyncClient() as http:
+            upstream = await http.get(f"{TTYD_HTTP}/{path}", params=request.query_params)
+        return Response(
+            content=upstream.content,
+            status_code=upstream.status_code,
+            media_type=upstream.headers.get("content-type"),
+        )
 
     return app
 
