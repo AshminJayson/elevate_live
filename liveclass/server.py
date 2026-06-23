@@ -1,8 +1,9 @@
 """FastAPI broadcast hub: state, teacher auth, student fan-out.
 
-Later tasks add the /terminal proxy and GET / page.
+Includes the /terminal proxy (WebSocket and HTTP) and the GET / student page.
 """
 
+import asyncio
 import os
 from pathlib import Path
 
@@ -165,33 +166,47 @@ def create_app(config=None):
         tmux attach -r), so nothing students send can affect the host.
         """
         await ws.accept(subprotocol="tty")
-        async with websockets.connect(TTYD_WS, subprotocols=["tty"], open_timeout=5) as upstream:
-            import asyncio
+        try:
+            async with websockets.connect(TTYD_WS, subprotocols=["tty"], open_timeout=5) as upstream:
 
-            async def to_upstream():
-                while True:
-                    data = await ws.receive_bytes()
-                    await upstream.send(data)
+                async def to_upstream():
+                    while True:
+                        data = await ws.receive_bytes()
+                        await upstream.send(data)
 
-            async def to_client():
-                async for data in upstream:
-                    if isinstance(data, str):
-                        await ws.send_text(data)
-                    else:
-                        await ws.send_bytes(data)
+                async def to_client():
+                    async for data in upstream:
+                        if isinstance(data, str):
+                            await ws.send_text(data)
+                        else:
+                            await ws.send_bytes(data)
 
-            done, pending = await asyncio.wait(
-                [asyncio.create_task(to_upstream()), asyncio.create_task(to_client())],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            for task in pending:
-                task.cancel()
+                done, pending = await asyncio.wait(
+                    [asyncio.create_task(to_upstream()), asyncio.create_task(to_client())],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in pending:
+                    task.cancel()
+        except (OSError, websockets.exceptions.WebSocketException):
+            await ws.close(code=status.WS_1011_INTERNAL_ERROR)
 
     @app.get("/terminal/{path:path}")
     async def terminal_http(path: str, request: Request):
-        """Reverse-proxy ttyd's HTTP assets (its xterm.js page) under /terminal/."""
+        """Reverse-proxy ttyd's HTTP assets (its xterm.js page) under /terminal/.
+
+        Args:
+            path (str): the ttyd asset path (e.g. "index.html", "js/xterm.js").
+            request (Request): the incoming request; query params are forwarded to ttyd.
+
+        Returns:
+            Response: proxied response with ttyd's status code and content-type,
+                or 502 if ttyd is unreachable.
+        """
         async with httpx.AsyncClient() as http:
-            upstream = await http.get(f"{TTYD_HTTP}/{path}", params=request.query_params)
+            try:
+                upstream = await http.get(f"{TTYD_HTTP}/{path}", params=request.query_params)
+            except httpx.RequestError:
+                return Response(content=b"terminal unavailable", status_code=502)
         return Response(
             content=upstream.content,
             status_code=upstream.status_code,
