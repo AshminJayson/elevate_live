@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.env
+
+# build artifacts and workflow scratch
+*.egg-info/
+.superpowers/

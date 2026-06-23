@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LiveClass</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.css"
+    />
+    <style>
+      html, body { margin: 0; height: 100%; font-family: ui-monospace, monospace; }
+      #app { display: grid; grid-template-columns: 220px 1fr; grid-template-rows: 32px 1fr; height: 100vh; }
+      #header { grid-column: 1 / 3; display: flex; align-items: center; gap: 12px; padding: 0 12px; background: #1e1e1e; color: #ddd; }
+      #status { margin-left: auto; font-size: 12px; }
+      #explorer { background: #252526; color: #ccc; overflow: auto; user-select: none; }
+      #explorer .node { padding: 2px 10px; cursor: pointer; white-space: nowrap; font-size: 13px; }
+      #explorer .node:hover { background: #2a2d2e; }
+      #explorer .node.active { background: #094771; color: #fff; }
+      #main { display: grid; grid-template-rows: 1fr 35%; min-width: 0; }
+      #code { min-height: 0; }
+      #term { border-top: 1px solid #333; }
+      #term iframe { width: 100%; height: 100%; border: 0; }
+      #livebar { display: none; gap: 8px; align-items: center; font-size: 12px; }
+      #livebar.show { display: flex; }
+      button { font: inherit; font-size: 12px; }
+      * { user-select: text; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="header">
+        <span id="title">LiveClass</span>
+        <span id="filename"></span>
+        <span id="livebar"><span>browsing</span><button id="return">return to live</button></span>
+        <span id="status">connecting…</span>
+      </div>
+      <div id="explorer"></div>
+      <div id="main">
+        <div id="code"></div>
+        <div id="term"><iframe src="/terminal/" title="terminal"></iframe></div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+    <script>
+      let editor = null;
+      let liveFile = null;     // last file message from the teacher
+      let browsing = false;    // true when viewing a clicked file
+      let reconnectDelay = 1000;
+
+      require.config({ paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs" } });
+      require(["vs/editor/editor.main"], () => {
+        editor = monaco.editor.create(document.getElementById("code"), {
+          value: "", language: "plaintext", readOnly: true, automaticLayout: true,
+          theme: "vs-dark", minimap: { enabled: false },
+        });
+        connect();
+      });
+
+      function setStatus(text) { document.getElementById("status").textContent = text; }
+
+      function showFile(msg) {
+        document.getElementById("filename").textContent = msg.path;
+        const model = editor.getModel();
+        monaco.editor.setModelLanguage(model, msg.language || "plaintext");
+        editor.setValue(msg.content);
+        highlight(msg.path);
+      }
+
+      function highlight(path) {
+        document.querySelectorAll("#explorer .node").forEach((el) => {
+          el.classList.toggle("active", el.dataset.path === path);
+        });
+      }
+
+      function renderTree(nodes, container, depth) {
+        if (!depth) container.innerHTML = "";
+        for (const node of nodes) {
+          const el = document.createElement("div");
+          el.className = "node";
+          el.dataset.path = node.path;
+          el.style.paddingLeft = 10 + depth * 14 + "px";
+          el.textContent = (node.type === "dir" ? "▾ " : "  ") + node.name;
+          if (node.type === "file") {
+            el.onclick = () => browseFile(node.path);
+          }
+          container.appendChild(el);
+          if (node.type === "dir" && node.children) {
+            renderTree(node.children, container, depth + 1);
+          }
+        }
+        if (liveFile && !browsing) highlight(liveFile.path);
+      }
+
+      async function browseFile(path) {
+        const res = await fetch("/file?path=" + encodeURIComponent(path));
+        if (!res.ok) return;
+        const content = await res.text();
+        browsing = true;
+        document.getElementById("livebar").classList.add("show");
+        const ext = path.split(".").pop();
+        // Monaco has no toml grammar; ini is the closest available.
+        const lang = { py: "python", js: "javascript", ts: "typescript", json: "json", html: "html", css: "css", md: "markdown", toml: "ini", yaml: "yaml", yml: "yaml" }[ext] || "plaintext";
+        showFile({ path, language: lang, content });
+      }
+
+      document.getElementById("return").onclick = () => {
+        browsing = false;
+        document.getElementById("livebar").classList.remove("show");
+        if (liveFile) showFile(liveFile);
+      };
+
+      function connect() {
+        const proto = location.protocol === "https:" ? "wss" : "ws";
+        const ws = new WebSocket(proto + "://" + location.host + "/ws/student");
+        ws.onopen = () => { setStatus("● live"); reconnectDelay = 1000; };
+        ws.onclose = () => { setStatus("reconnecting…"); setTimeout(connect, reconnectDelay); reconnectDelay = Math.min(reconnectDelay * 2, 30000); };
+        ws.onmessage = (ev) => {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === "tree") {
+            renderTree(msg.tree, document.getElementById("explorer"), 0);
+          } else if (msg.type === "file") {
+            liveFile = msg;
+            if (!browsing) showFile(msg);
+          }
+        };
+      }
+
+      document.getElementById("title").textContent = document.title;
+    </script>
+  </body>
+</html>
