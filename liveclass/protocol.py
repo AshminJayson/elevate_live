@@ -23,7 +23,7 @@ LANGUAGE_BY_EXT = {
 }
 
 
-def detect_language(path):
+def detect_language(path: str) -> str:
     """Map a file path's extension to a Monaco language id.
 
     Args:
@@ -35,7 +35,7 @@ def detect_language(path):
     return LANGUAGE_BY_EXT.get(PurePosixPath(path).suffix, "plaintext")
 
 
-def file_message(path, content):
+def file_message(path: str, content: str) -> dict:
     """Build a 'file' wire message for the active file.
 
     Args:
@@ -43,19 +43,19 @@ def file_message(path, content):
         content (str): full text content of the file.
 
     Returns:
-        dict: {"type": "file", "path", "language", "content"}.
+        dict: {"type": "file", "path": str, "language": str, "content": str}.
     """
     return {"type": "file", "path": path, "language": detect_language(path), "content": content}
 
 
-def tree_message(tree):
+def tree_message(tree: list[dict]) -> dict:
     """Build a 'tree' wire message wrapping a file-tree snapshot.
 
     Args:
         tree (list[dict]): tree nodes from tree.build_tree.
 
     Returns:
-        dict: {"type": "tree", "tree": tree}.
+        dict: {"type": "tree", "tree": list[node]}.
     """
     return {"type": "tree", "tree": tree}
 
