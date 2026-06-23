@@ -1,43 +1,47 @@
-from pathlib import Path
-
-from liveclass.config import Config, DEFAULT_IGNORE, is_ignored, load_config
+from liveclass.config import DEFAULT_IGNORE, Settings, is_ignored
 
 
-def test_load_config_reads_values(tmp_path):
-    cfg_file = tmp_path / "liveclass.toml"
-    cfg_file.write_text(
-        '[broadcast]\n'
-        'lesson_dir = "./lesson"\n'
-        'title = "FastAPI Live"\n'
-        'ignore = [".git/", "*.pyc"]\n'
-        '[terminal]\n'
-        'tmux_session = "class"\n'
-        'cols = 100\n'
-        'rows = 30\n'
+def _write_env(tmp_path, body):
+    """Write a .env file and return its path."""
+    env_file = tmp_path / ".env"
+    env_file.write_text(body)
+    return env_file
+
+
+def test_settings_reads_env_file(tmp_path):
+    env_file = _write_env(
+        tmp_path,
+        'LIVECLASS_TOKEN=secret\n'
+        'LIVECLASS_LESSON_DIR=./lesson\n'
+        'LIVECLASS_TITLE=FastAPI Live\n'
+        'LIVECLASS_IGNORE=[".git/", "*.pyc"]\n'
+        'LIVECLASS_TMUX_SESSION=class\n'
+        'LIVECLASS_COLS=100\n'
+        'LIVECLASS_ROWS=30\n',
     )
-    cfg = load_config(cfg_file, token="secret")
-    assert isinstance(cfg, Config)
+    cfg = Settings(_env_file=env_file)
+    assert cfg.token == "secret"
     assert cfg.title == "FastAPI Live"
     assert cfg.ignore == [".git/", "*.pyc"]
     assert cfg.tmux_session == "class"
     assert cfg.cols == 100
     assert cfg.rows == 30
-    assert cfg.token == "secret"
     assert cfg.lesson_dir.is_absolute()
 
 
-def test_load_config_token_from_env(tmp_path, monkeypatch):
-    cfg_file = tmp_path / "liveclass.toml"
-    cfg_file.write_text('[broadcast]\nlesson_dir = "./lesson"\n')
+def test_settings_env_overrides_dotenv(tmp_path, monkeypatch):
+    env_file = _write_env(tmp_path, "LIVECLASS_TOKEN=from-file\n")
     monkeypatch.setenv("LIVECLASS_TOKEN", "from-env")
-    cfg = load_config(cfg_file)
-    assert cfg.token == "from-env"
+    cfg = Settings(_env_file=env_file)
+    assert cfg.token == "from-env"  # exported env wins over .env
 
 
-def test_load_config_defaults(tmp_path):
-    cfg_file = tmp_path / "liveclass.toml"
-    cfg_file.write_text("")
-    cfg = load_config(cfg_file, token="t")
+def test_settings_defaults(monkeypatch):
+    for key in ("LIVECLASS_TOKEN", "LIVECLASS_IGNORE", "LIVECLASS_COLS",
+                "LIVECLASS_ROWS", "LIVECLASS_TMUX_SESSION"):
+        monkeypatch.delenv(key, raising=False)
+    cfg = Settings(_env_file=None)
+    assert cfg.token == ""
     assert cfg.ignore == DEFAULT_IGNORE
     assert cfg.cols == 100
     assert cfg.rows == 30

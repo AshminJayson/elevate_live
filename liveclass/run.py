@@ -5,13 +5,11 @@ Algorithm:
     2. Start ttyd (read-only) attached to that session under base path /terminal.
     3. Start uvicorn serving liveclass.server:create_app.
     4. Start the broadcaster (python -m liveclass.broadcaster).
-    5. Start ngrok against :8000 using NGROK_DOMAIN if set.
+    5. Start ngrok against :8000 using LIVECLASS_NGROK_DOMAIN if set.
     6. Wait; on Ctrl-C, terminate all children.
 
-Env:
-    LIVECLASS_TOKEN: required teacher token.
-    LIVECLASS_CONFIG: config path (default liveclass.toml).
-    NGROK_DOMAIN: reserved static ngrok domain (optional).
+Configuration comes from env / a project-root .env (see liveclass.config.Settings);
+LIVECLASS_TOKEN is required, LIVECLASS_NGROK_DOMAIN is optional.
 """
 
 import os
@@ -21,7 +19,7 @@ import subprocess
 import sys
 import time
 
-from liveclass.config import load_config
+from liveclass.config import load_settings
 
 
 def _ensure_tmux(session, cols, rows):
@@ -92,10 +90,9 @@ def main():
 
     Returns None on normal shutdown; calls sys.exit() on a missing token or missing binaries.
     """
-    config_path = os.environ.get("LIVECLASS_CONFIG", "liveclass.toml")
-    cfg = load_config(config_path)
+    cfg = load_settings()
     if not cfg.token:
-        sys.exit("LIVECLASS_TOKEN must be set")
+        sys.exit("LIVECLASS_TOKEN must be set (in .env or the environment)")
 
     _require_binaries(["tmux", "ttyd", "ngrok"])
 
@@ -116,7 +113,7 @@ def main():
         start_new_session=True,
     ))
 
-    domain = os.environ.get("NGROK_DOMAIN")
+    domain = cfg.ngrok_domain
     ngrok_cmd = ["ngrok", "http", "8000"]
     if domain:
         ngrok_cmd = ["ngrok", "http", f"--domain={domain}", "8000"]

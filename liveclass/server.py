@@ -12,7 +12,7 @@ import websockets
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
-from liveclass.config import Config, load_config
+from liveclass.config import is_ignored, load_settings
 
 # ttyd runs with base path -b /terminal (see run.py), so it serves its page,
 # token, and websocket under /terminal/. The proxy must preserve that prefix.
@@ -58,14 +58,14 @@ def create_app(config=None):
     """Build the FastAPI app with broadcast routes.
 
     Args:
-        config (Config | None): configuration; if None, load from the path in
-            LIVECLASS_CONFIG (default "liveclass.toml").
+        config (Settings | None): configuration; if None, load from env / .env
+            via load_settings().
 
     Returns:
         FastAPI: the configured application.
     """
     if config is None:
-        config = load_config(os.environ.get("LIVECLASS_CONFIG", "liveclass.toml"))
+        config = load_settings()
 
     app = FastAPI()
     app.state.config = config
@@ -129,7 +129,7 @@ def create_app(config=None):
         """Serve a single lesson file as plain text, sandboxed and ignore-aware.
 
         Algorithm:
-            1. Reload the ignore list from disk so hot-edits to liveclass.toml
+            1. Reload settings from env / .env so hot-edits to the ignore list
                take effect immediately (enforcement never depends on a message).
             2. Resolve lesson_dir/path; reject (404) if it escapes lesson_dir.
             3. Reject (404) if missing, a directory, or ignored.
@@ -141,10 +141,7 @@ def create_app(config=None):
         Returns:
             PlainTextResponse: file content, or 404 on any rejection.
         """
-        from liveclass.config import is_ignored
-
-        fresh = load_config(os.environ.get("LIVECLASS_CONFIG", "liveclass.toml"), token=config.token)
-        ignore = fresh.ignore
+        ignore = load_settings().ignore
         base = config.lesson_dir.resolve()
         target = (base / path).resolve()
         rel = os.path.relpath(target, base)

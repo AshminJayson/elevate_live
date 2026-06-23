@@ -1,12 +1,13 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from liveclass.config import Config
+from liveclass.config import Settings
 from liveclass.server import create_app
 
 
 def _config(tmp_path, token="secret"):
-    return Config(
+    return Settings(
+        _env_file=None,
         lesson_dir=tmp_path,
         title="Test",
         ignore=[],
