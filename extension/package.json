@@ -7,9 +7,13 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "main": "./out/extension.js",
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "commands": [
       {
@@ -41,16 +45,28 @@
         },
         "bitforge.ignore": {
           "type": "array",
-          "items": { "type": "string" },
-          "default": [".git/", ".venv/", "venv/", "__pycache__/", "node_modules/", "*.pyc"],
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            ".git/",
+            ".venv/",
+            "venv/",
+            "__pycache__/",
+            "node_modules/",
+            "*.pyc"
+          ],
           "description": "Patterns whose files are never streamed (mirrors the server ignore list)."
         }
       }
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "typecheck": "tsc -p ./ --noEmit",
+    "bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --external:bufferutil --external:utf-8-validate --format=cjs --platform=node --target=node18",
+    "compile": "npm run bundle",
+    "watch": "npm run bundle -- --watch",
+    "vscode:prepublish": "npm run typecheck && npm run bundle",
     "package": "vsce package"
   },
   "dependencies": {
@@ -61,6 +77,7 @@
     "@types/vscode": "^1.85.0",
     "@types/ws": "^8.5.0",
     "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.28.1",
     "typescript": "^5.4.0"
   }
 }

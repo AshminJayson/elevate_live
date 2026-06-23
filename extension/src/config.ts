@@ -39,16 +39,28 @@ export function loadConfig(): BitForgeConfig | null {
   }
   const root = folders[0].uri.fsPath;
   const cfg = vscode.workspace.getConfiguration("bitforge");
+  const env = readEnv(path.join(root, ".env"));
 
-  const lessonDirSetting = (cfg.get<string>("lessonDir") || "").trim();
-  const lessonDir = lessonDirSetting ? path.resolve(lessonDirSetting) : root;
-
-  const token = readEnvToken(path.join(root, ".env"));
+  const token = env["BITFORGE_TOKEN"] || "";
   if (!token) {
     vscode.window.showErrorMessage(
       "BitForge: set BITFORGE_TOKEN in the workspace-root .env to start streaming."
     );
     return null;
+  }
+
+  // lessonDir precedence: the bitforge.lessonDir setting, else BITFORGE_LESSON_DIR
+  // from the same .env (resolved relative to the .env's folder, matching the
+  // server's single-config model), else the workspace root.
+  const lessonDirSetting = (cfg.get<string>("lessonDir") || "").trim();
+  const lessonEnv = (env["BITFORGE_LESSON_DIR"] || "").trim();
+  let lessonDir: string;
+  if (lessonDirSetting) {
+    lessonDir = path.resolve(lessonDirSetting);
+  } else if (lessonEnv) {
+    lessonDir = path.resolve(root, lessonEnv);
+  } else {
+    lessonDir = root;
   }
 
   return {
@@ -61,21 +73,23 @@ export function loadConfig(): BitForgeConfig | null {
 }
 
 /**
- * Extract BITFORGE_TOKEN from a .env file, or "" if absent/unreadable.
+ * Parse a .env file into a key->value map, or {} if unreadable.
  *
- * Parses simple KEY=VALUE lines, ignoring blanks and comments, stripping optional
- * surrounding quotes. Deliberately minimal: it reads the same file the server
- * reads, only the one key it needs.
+ * Reads the same file the BitForge server reads. Handles simple KEY=VALUE lines,
+ * skipping blanks and "#" comments and stripping optional surrounding quotes.
+ * Deliberately minimal (no interpolation/multiline); enough for the few keys the
+ * extension needs (BITFORGE_TOKEN, BITFORGE_LESSON_DIR).
  *
  * @param envPath absolute path to the .env file
- * @returns the token value, or "" when missing
+ * @returns map of env keys to string values (empty when the file is absent)
  */
-function readEnvToken(envPath: string): string {
+function readEnv(envPath: string): Record<string, string> {
+  const out: Record<string, string> = {};
   let text: string;
   try {
     text = fs.readFileSync(envPath, "utf-8");
   } catch {
-    return "";
+    return out;
   }
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
@@ -86,9 +100,7 @@ function readEnvToken(envPath: string): string {
     if (eq === -1) {
       continue;
     }
-    if (line.slice(0, eq).trim() === "BITFORGE_TOKEN") {
-      return line.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
-    }
+    out[line.slice(0, eq).trim()] = line.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
   }
-  return "";
+  return out;
 }
