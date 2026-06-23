@@ -1,6 +1,6 @@
 """FastAPI broadcast hub: state, teacher auth, student fan-out.
 
-Later tasks add the /file endpoint, the /terminal proxy, and GET / page.
+Later tasks add the /terminal proxy and GET / page.
 """
 
 import os
@@ -132,7 +132,7 @@ def create_app(config=None):
         Returns:
             PlainTextResponse: file content, or 404 on any rejection.
         """
-        from liveclass.config import is_ignored, load_config
+        from liveclass.config import is_ignored
 
         fresh = load_config(os.environ.get("LIVECLASS_CONFIG", "liveclass.toml"), token=config.token)
         ignore = fresh.ignore
