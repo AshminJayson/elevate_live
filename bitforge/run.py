@@ -188,6 +188,15 @@ def main():
     if not cfg.token:
         sys.exit("BITFORGE_TOKEN must be set (in .env or the environment)")
 
+    # Fail fast on a missing source dir: otherwise the broadcaster connects, hits
+    # FileNotFoundError building the tree, and spins in a silent 2s reconnect loop.
+    # Checked here (before tmux setup) so it fires even when the session pre-exists.
+    if not cfg.source_dir.is_dir():
+        sys.exit(
+            f"BITFORGE_SOURCE_DIR does not exist or is not a directory: {cfg.source_dir}\n"
+            "Set it (in .env or the environment) to the directory you want to broadcast."
+        )
+
     _require_binaries(["tmux", "ttyd", "ngrok"])
 
     _ensure_tmux(cfg.tmux_session, cfg.cols, cfg.rows, cfg.source_dir)
@@ -198,6 +207,11 @@ def main():
     # via Python logging and keeps the console for the heartbeat only, so it
     # alone inherits this terminal's stdout/stderr.
     log_path = Path(cfg.log_file).resolve()
+    # Start each run with a fresh log so the file shows only this session. Truncate
+    # once here, before any child opens it, then reopen in append mode: the shared
+    # fd below and uvicorn's separate FileHandler both rely on O_APPEND to interleave
+    # safely, so we must not leave any writer in truncating ("w") mode.
+    open(log_path, "w").close()
     logf = open(log_path, "a", buffering=1)
     quiet = {"stdout": logf, "stderr": subprocess.STDOUT}
 
