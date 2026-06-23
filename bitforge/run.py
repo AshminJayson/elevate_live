@@ -3,37 +3,46 @@
 Algorithm:
     1. Load config; ensure a tmux session sized to cols x rows exists.
     2. Start ttyd (read-only) attached to that session under base path /terminal.
-    3. Start uvicorn serving bitforge.server:create_app.
+    3. Start the server (python -m bitforge.serve) with split console/file logging.
     4. Start the broadcaster (python -m bitforge.broadcaster).
     5. Start ngrok against :8000 using BITFORGE_NGROK_DOMAIN if set.
     6. Wait; on Ctrl-C, terminate all children.
+
+The console is kept quiet: ttyd, the broadcaster, and ngrok have their output
+redirected into the detailed log file (cfg.log_file), and only the server
+inherits this terminal so its periodic "viewers online" heartbeat shows.
 
 Configuration comes from env / a project-root .env (see bitforge.config.Settings);
 BITFORGE_TOKEN is required, BITFORGE_NGROK_DOMAIN and BITFORGE_NGROK_AUTHTOKEN
 are optional (the authtoken authenticates the ngrok agent via NGROK_AUTHTOKEN).
 """
 
+import json
 import os
+import select
 import shutil
 import signal
 import subprocess
 import sys
+import termios
 import time
+import tty
+from pathlib import Path
 
 from bitforge.config import load_settings
 
 
 def _ensure_tmux(session, cols, rows):
-    """Create the tmux session at an initial cols x rows, with the teacher driving size.
+    """Create the tmux session at an initial cols x rows, with the host driving size.
 
     Algorithm:
         1. Create the session detached at cols x rows if it does not exist (a sane
-           default size for students before anyone attaches interactively).
+           default size for viewers before anyone attaches interactively).
         2. Set window-size to 'largest'. Verified behavior: the interactive
-           read-write client (the teacher's own `tmux attach`) drives the window
-           size, while read-only ttyd student clients never shrink OR grow it.
-           So the teacher's terminal is whatever size they want, and a new
-           student joining no longer reflows ("splits") everyone else's view.
+           read-write client (the host's own `tmux attach`) drives the window
+           size, while read-only ttyd viewer clients never shrink OR grow it.
+           So the host's terminal is whatever size they want, and a new
+           viewer joining no longer reflows ("splits") everyone else's view.
            (cols/rows are therefore the initial size only, not a hard lock.)
 
     Args:
@@ -59,7 +68,7 @@ def _ttyd_cmd(session):
     Algorithm:
         Start from the fixed flags (port 7681, base path /terminal, localhost
         bind) then append xterm.js client options via repeated `-t key=value`:
-        a real scrollback buffer (students can scroll back through output, which
+        a real scrollback buffer (viewers can scroll back through output, which
         the default has none of), no leave-alert (the page is an iframe), a
         legible font, and a theme matching the BitForge dark chrome. Finish with
         the read-only tmux attach (`-r`), the source of the view.
@@ -132,6 +141,32 @@ def _require_binaries(names):
         sys.exit(f"Missing required binaries: {joined}. Install with: brew install {joined}")
 
 
+def _cycle_view_mode(token):
+    """Tell the running hub to cycle the viewer view mode, via a one-shot host socket.
+
+    The hub server (bitforge.serve) runs in its own session and cannot read this
+    terminal, so the supervisor — which owns the foreground TTY — carries the
+    hotkey and reaches the server over the network. It opens a short-lived
+    authenticated host WebSocket to the local hub, sends a single
+    cycle_view_mode control message, and closes. Best-effort: any failure is
+    printed to the supervisor console rather than raised.
+
+    Args:
+        token (str): host auth token (config.token) gating /ws/host.
+
+    Returns:
+        None.
+    """
+    from websockets.sync.client import connect
+
+    url = f"ws://127.0.0.1:8000/ws/host?token={token}"
+    try:
+        with connect(url, open_timeout=2) as ws:
+            ws.send(json.dumps({"type": "control", "action": "cycle_view_mode"}))
+    except Exception as exc:  # the hotkey is best-effort; surface, do not crash
+        print(f"[hotkey] view-mode cycle failed: {exc!r}")
+
+
 def main():
     """Start the BitForge stack: tmux, ttyd, uvicorn, broadcaster, ngrok.
 
@@ -150,16 +185,25 @@ def main():
 
     _ensure_tmux(cfg.tmux_session, cfg.cols, cfg.rows)
 
+    # One append-mode log file collects the firehose from the noisy children
+    # (ttyd, broadcaster, ngrok) so the host's console stays clean. The
+    # server (bitforge.serve) writes its own detailed records to this same file
+    # via Python logging and keeps the console for the heartbeat only, so it
+    # alone inherits this terminal's stdout/stderr.
+    log_path = Path(cfg.log_file).resolve()
+    logf = open(log_path, "a", buffering=1)
+    quiet = {"stdout": logf, "stderr": subprocess.STDOUT}
+
     procs = []
     # ttyd: read-only (no -W), base path /terminal, scrollable, themed (see _ttyd_cmd).
-    procs.append(subprocess.Popen(_ttyd_cmd(cfg.tmux_session), start_new_session=True))
-    procs.append(subprocess.Popen([
-        "uv", "run", "uvicorn", "bitforge.server:create_app",
-        "--factory", "--host", "127.0.0.1", "--port", "8000",
-    ], start_new_session=True))
+    procs.append(subprocess.Popen(_ttyd_cmd(cfg.tmux_session), start_new_session=True, **quiet))
+    procs.append(subprocess.Popen(
+        ["uv", "run", "python", "-m", "bitforge.serve"],
+        start_new_session=True,
+    ))
     procs.append(subprocess.Popen(
         ["uv", "run", "python", "-m", "bitforge.broadcaster"],
-        start_new_session=True,
+        start_new_session=True, **quiet,
     ))
 
     domain = cfg.ngrok_domain
@@ -171,16 +215,41 @@ def main():
     ngrok_env = os.environ.copy()
     if cfg.ngrok_authtoken:
         ngrok_env["NGROK_AUTHTOKEN"] = cfg.ngrok_authtoken
-    procs.append(subprocess.Popen(ngrok_cmd, start_new_session=True, env=ngrok_env))
+    procs.append(subprocess.Popen(ngrok_cmd, start_new_session=True, env=ngrok_env, **quiet))
 
     print("BitForge up. Attach your editor terminal with:")
     print(f"  tmux attach -t {cfg.tmux_session}")
+    print(f"Logs: {log_path}  (console shows viewers online every {cfg.heartbeat_seconds}s)")
+
+    # Hotkey: while this terminal is interactive, press 't' to cycle the viewer
+    # view mode (free -> code -> terminal). cbreak gives single-keypress reads
+    # while leaving ISIG on, so Ctrl-C still raises KeyboardInterrupt. When stdin
+    # is not a TTY (piped/detached) the hotkey is disabled and we just idle.
+    hotkey = sys.stdin.isatty()
+    old_termios = None
+    if hotkey:
+        print("Press 't' here to cycle the viewer view mode (free -> code -> terminal).")
+        old_termios = termios.tcgetattr(sys.stdin.fileno())
+        tty.setcbreak(sys.stdin.fileno())
     try:
         while True:
-            time.sleep(1)
+            if hotkey:
+                if select.select([sys.stdin], [], [], 1)[0]:
+                    ch = sys.stdin.read(1)
+                    if ch == "":
+                        hotkey = False  # stdin closed (EOF): stop polling, just idle
+                    elif ch == "t":
+                        _cycle_view_mode(cfg.token)
+            else:
+                time.sleep(1)
     except KeyboardInterrupt:
+        pass
+    finally:
+        if old_termios is not None:
+            termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old_termios)
         for p in procs:
             _terminate_group(p)
+        logf.close()
 
 
 if __name__ == "__main__":

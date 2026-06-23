@@ -214,7 +214,7 @@
         <span id="seam"></span>
       </header>
 
-      <nav id="explorer"><div class="eyebrow">Lesson files</div></nav>
+      <nav id="explorer"><div class="eyebrow">Source files</div></nav>
 
       <div id="main">
         <div id="code"><div class="empty">Waiting for the live feed…</div></div>
@@ -236,7 +236,7 @@
         "python", "javascript", "typescript", "json", "html",
         "css", "markdown", "yaml", "toml", "shell",
       ]);
-      let liveFile = null; // last 'file' message from the teacher
+      let liveFile = null; // last 'file' message from the host
       let browsing = false; // true when viewing a clicked file (off live)
       let renderedPath = null; // path currently painted in #code (for scroll keep)
       let lastRender = null; // {content, lang, path} — replayed once Shiki is ready
@@ -306,7 +306,7 @@
 
       // ---- file tree ----
       function renderTree(nodes, container, depth, root) {
-        if (!depth) container.innerHTML = '<div class="eyebrow">' + (root || "Lesson files") + "</div>";
+        if (!depth) container.innerHTML = '<div class="eyebrow">' + (root || "Source files") + "</div>";
         for (const node of nodes) {
           const row = document.createElement("div");
           row.className = "node " + (node.type === "dir" ? "dir" : "file");
@@ -353,7 +353,7 @@
 
       function connect() {
         const proto = location.protocol === "https:" ? "wss" : "ws";
-        const ws = new WebSocket(proto + "://" + location.host + "/ws/student");
+        const ws = new WebSocket(proto + "://" + location.host + "/ws/viewer");
         ws.onopen = () => { setStatus("live", "Live"); reconnectDelay = 1000; };
         ws.onclose = () => {
           setStatus("reconnecting", "Reconnecting");
@@ -368,20 +368,51 @@
             liveFile = msg;
             flareSeam();
             if (!browsing) showFile(msg);
+          } else if (msg.type === "view_mode") {
+            applyViewMode(msg.mode);
           }
         };
       }
 
-      // ---- terminal-only mode: localStorage + #terminal hash (hash wins) ----
-      function setTerminalOnly(on) {
+      // ---- view mode: host-forced (free/code/terminal) over viewer preference ----
+      // applyLayout flips the panes only; setTerminalOnly also persists the
+      // viewer's own choice. Forced modes call applyLayout so they never clobber
+      // the saved preference that "free" later restores.
+      let forced = false;
+      function applyLayout(on) {
         el("app").classList.toggle("terminal-only", on);
         el("termonly").textContent = on ? "Show code" : "Terminal";
+      }
+      function savedPref() {
+        return location.hash === "#terminal" || localStorage.getItem("bitforge.terminalOnly") === "1";
+      }
+      function setTerminalOnly(on) {
+        applyLayout(on);
         localStorage.setItem("bitforge.terminalOnly", on ? "1" : "0");
       }
-      el("termonly").onclick = () =>
+      // Host view-mode messages: "free" hands control back to the viewer (restore
+      // their saved choice, re-enable the toggle); "code"/"terminal" force the
+      // layout and disable the toggle so the viewer cannot escape it.
+      function applyViewMode(mode) {
+        if (mode === "code" || mode === "terminal") {
+          forced = true;
+          applyLayout(mode === "terminal");
+          el("termonly").disabled = true;
+        } else {
+          forced = false;
+          el("termonly").disabled = false;
+          applyLayout(savedPref());
+        }
+      }
+      el("termonly").onclick = () => {
+        if (forced) return; // host has locked the view; the toggle is inert
         setTerminalOnly(!el("app").classList.contains("terminal-only"));
-      window.addEventListener("hashchange", () => setTerminalOnly(location.hash === "#terminal"));
-      setTerminalOnly(location.hash === "#terminal" || localStorage.getItem("bitforge.terminalOnly") === "1");
+      };
+      window.addEventListener("hashchange", () => {
+        if (!forced) setTerminalOnly(location.hash === "#terminal");
+      });
+      // Boot from the viewer's own preference; a server view_mode may override it.
+      applyLayout(savedPref());
 
       // ---- boot: connect immediately, upgrade to highlighted once Shiki loads ----
       setStatus("connecting", "Connecting");
@@ -391,7 +422,7 @@
           highlighter = hl;
           if (lastRender) renderCode(lastRender.content, lastRender.lang, lastRender.path);
         })
-        .catch(() => { /* keep plain-text fallback; nothing to surface to students */ });
+        .catch(() => { /* keep plain-text fallback; nothing to surface to viewers */ });
     </script>
   </body>
 </html>

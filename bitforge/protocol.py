@@ -1,8 +1,15 @@
 """Message builders and language detection for the broadcast protocol.
 
-Wire messages (JSON over WebSocket), teacher -> server -> students:
+Wire messages (JSON over WebSocket), host -> server -> viewers:
     file: {"type": "file", "path": str, "language": str, "content": str}
     tree: {"type": "tree", "tree": list[node], "root": str}
+
+View-mode control (server -> viewers AND server -> hosts):
+    view_mode: {"type": "view_mode", "mode": "free" | "code" | "terminal"}
+
+Host -> server control (extension trigger; the host terminal hotkey sends the
+same message over a one-shot host socket):
+    control: {"type": "control", "action": "cycle_view_mode"}
 """
 
 from pathlib import PurePosixPath
@@ -53,7 +60,7 @@ def tree_message(tree: list[dict], root: str = "") -> dict:
 
     Args:
         tree (list[dict]): tree nodes from tree.build_tree.
-        root (str): display name of the broadcast project root (the lesson
+        root (str): display name of the broadcast project root (the source
             directory's basename); shown as the explorer heading. Empty string
             falls back to a generic heading on the client.
 

@@ -11,22 +11,22 @@ import * as vscode from "vscode";
  *
  * Schema:
  *   serverUrl  (string): WebSocket base, e.g. "ws://127.0.0.1:8000".
- *   lessonDir  (string): absolute lesson directory root.
+ *   sourceDir  (string): absolute source directory root.
  *   debounceMs (number): debounce window for buffer sends.
  *   ignore     (string[]): patterns whose files are never streamed.
  */
 export interface BitForgeConfig {
   serverUrl: string;
-  lessonDir: string;
+  sourceDir: string;
   debounceMs: number;
   ignore: string[];
 }
 
 /**
- * Build non-secret configuration from VS Code settings (+ .env for lessonDir).
+ * Build non-secret configuration from VS Code settings (+ .env for sourceDir).
  *
- * Algorithm: require a workspace folder; resolve lessonDir with precedence
- * setting > BITFORGE_LESSON_DIR in the workspace .env > the workspace root (the
+ * Algorithm: require a workspace folder; resolve sourceDir with precedence
+ * setting > BITFORGE_SOURCE_DIR in the workspace .env > the workspace root (the
  * .env read is a soft convenience, never required); read serverUrl/debounce/
  * ignore from settings. Returns null only when there is no workspace folder.
  *
@@ -35,30 +35,30 @@ export interface BitForgeConfig {
 export function loadConfig(): BitForgeConfig | null {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) {
-    vscode.window.showErrorMessage("BitForge: open a workspace folder to stream a lesson.");
+    vscode.window.showErrorMessage("BitForge: open a workspace folder to stream a source.");
     return null;
   }
   const root = folders[0].uri.fsPath;
   const cfg = vscode.workspace.getConfiguration("bitforge");
   const env = readEnv(path.join(root, ".env"));
 
-  // lessonDir precedence: the bitforge.lessonDir setting, else BITFORGE_LESSON_DIR
+  // sourceDir precedence: the bitforge.sourceDir setting, else BITFORGE_SOURCE_DIR
   // from the workspace .env (resolved relative to it, matching the server's
   // single-config model), else the workspace root.
-  const lessonDirSetting = (cfg.get<string>("lessonDir") || "").trim();
-  const lessonEnv = (env["BITFORGE_LESSON_DIR"] || "").trim();
-  let lessonDir: string;
-  if (lessonDirSetting) {
-    lessonDir = path.resolve(lessonDirSetting);
-  } else if (lessonEnv) {
-    lessonDir = path.resolve(root, lessonEnv);
+  const sourceDirSetting = (cfg.get<string>("sourceDir") || "").trim();
+  const sourceEnv = (env["BITFORGE_SOURCE_DIR"] || "").trim();
+  let sourceDir: string;
+  if (sourceDirSetting) {
+    sourceDir = path.resolve(sourceDirSetting);
+  } else if (sourceEnv) {
+    sourceDir = path.resolve(root, sourceEnv);
   } else {
-    lessonDir = root;
+    sourceDir = root;
   }
 
   return {
     serverUrl: (cfg.get<string>("serverUrl") || "ws://127.0.0.1:8000").replace(/\/+$/, ""),
-    lessonDir,
+    sourceDir,
     debounceMs: cfg.get<number>("debounceMs") ?? 100,
     ignore: cfg.get<string[]>("ignore") ?? [],
   };
@@ -67,7 +67,7 @@ export function loadConfig(): BitForgeConfig | null {
 /**
  * Parse a .env file into a key->value map, or {} if unreadable.
  *
- * Used only for the non-secret BITFORGE_LESSON_DIR convenience. Handles simple
+ * Used only for the non-secret BITFORGE_SOURCE_DIR convenience. Handles simple
  * KEY=VALUE lines, skipping blanks and "#" comments and stripping optional
  * surrounding quotes.
  *

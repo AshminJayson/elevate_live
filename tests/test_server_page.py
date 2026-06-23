@@ -14,7 +14,7 @@ _INDEX_HTML = Path(__file__).resolve().parent.parent / "static" / "index.html"
 
 def test_root_serves_html(tmp_path):
     cfg = Settings(
-        _env_file=None, lesson_dir=tmp_path, title="T", ignore=[],
+        _env_file=None, source_dir=tmp_path, title="T", ignore=[],
         tmux_session="class", cols=100, rows=30, token="secret",
     )
     client = TestClient(create_app(cfg))
@@ -26,7 +26,7 @@ def test_root_serves_html(tmp_path):
 
 def test_page_loads_cdn_assets_and_panes(tmp_path):
     cfg = Settings(
-        _env_file=None, lesson_dir=tmp_path, title="T", ignore=[],
+        _env_file=None, source_dir=tmp_path, title="T", ignore=[],
         tmux_session="class", cols=100, rows=30, token="secret",
     )
     client = TestClient(create_app(cfg))
@@ -35,18 +35,18 @@ def test_page_loads_cdn_assets_and_panes(tmp_path):
     assert 'id="explorer"' in html
     assert 'id="code"' in html
     assert 'src="/terminal/"' in html  # terminal via proxy
-    assert "/ws/student" in html
+    assert "/ws/viewer" in html
 
 
 def test_inline_page_javascript_is_syntactically_valid(tmp_path):
-    """Guard against page-breaking JS syntax errors in the student page.
+    """Guard against page-breaking JS syntax errors in the viewer page.
 
     Algorithm:
         Extract every inline <script> block (those without a src attribute)
         from static/index.html, concatenate them, and run `node --check` on the
         result (as an .mjs file, since the page's inline script is an ES module
         that uses `import`). A syntax error in the inline script silently breaks
-        the entire student page (no highlighter, no tree, no WebSocket) yet leaves
+        the entire viewer page (no highlighter, no tree, no WebSocket) yet leaves
         the HTML substring assertions passing, so this executes the JS parser directly.
 
     Args:

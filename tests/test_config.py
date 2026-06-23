@@ -12,7 +12,7 @@ def test_settings_reads_env_file(tmp_path):
     env_file = _write_env(
         tmp_path,
         'BITFORGE_TOKEN=secret\n'
-        'BITFORGE_LESSON_DIR=./lesson\n'
+        'BITFORGE_SOURCE_DIR=./source\n'
         'BITFORGE_TITLE=FastAPI Live\n'
         'BITFORGE_IGNORE=[".git/", "*.pyc"]\n'
         'BITFORGE_TMUX_SESSION=class\n'
@@ -26,7 +26,7 @@ def test_settings_reads_env_file(tmp_path):
     assert cfg.tmux_session == "class"
     assert cfg.cols == 100
     assert cfg.rows == 30
-    assert cfg.lesson_dir.is_absolute()
+    assert cfg.source_dir.is_absolute()
 
 
 def test_settings_env_overrides_dotenv(tmp_path, monkeypatch):

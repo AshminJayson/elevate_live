@@ -1,18 +1,18 @@
 import * as path from "path";
 
 /**
- * Return the POSIX-relative path of a file under lessonDir, or null if outside it.
+ * Return the POSIX-relative path of a file under sourceDir, or null if outside it.
  *
- * Algorithm: compute the OS-relative path from lessonDir to filePath; if it starts
- * with ".." or is absolute, the file escapes the lesson sandbox, so return null.
+ * Algorithm: compute the OS-relative path from sourceDir to filePath; if it starts
+ * with ".." or is absolute, the file escapes the source sandbox, so return null.
  * Otherwise normalise separators to POSIX (the wire protocol and server use "/").
  *
  * @param filePath absolute filesystem path of the document
- * @param lessonDir absolute lesson directory root
- * @returns POSIX-relative path (e.g. "pkg/main.py") or null when outside lessonDir
+ * @param sourceDir absolute source directory root
+ * @returns POSIX-relative path (e.g. "pkg/main.py") or null when outside sourceDir
  */
-export function toLessonRelative(filePath: string, lessonDir: string): string | null {
-  const rel = path.relative(lessonDir, filePath);
+export function toSourceRelative(filePath: string, sourceDir: string): string | null {
+  const rel = path.relative(sourceDir, filePath);
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
     return null;
   }

@@ -1,7 +1,7 @@
 # BitForge
 
-View-only live broadcast of a teacher's code, file tree, and terminal to a
-browser — no participant cap, all text copyable, students strictly read-only.
+View-only live broadcast of a host's code, file tree, and terminal to a
+browser — no participant cap, all text copyable, viewers strictly read-only.
 
 ## Architecture
 
@@ -14,34 +14,34 @@ through it.
                                    │
                           FastAPI hub  (bitforge/server.py)
         ┌───────────────┬──────────────┬────────────────┬──────────────┐
-        │ GET /         │ /ws/student  │ GET /file      │ /terminal(/ws)│
-        │ student page  │ fan-out      │ sandboxed read │ proxy → ttyd  │
+        │ GET /         │ /ws/viewer   │ GET /file      │ /terminal(/ws)│
+        │ viewer page   │ fan-out      │ sandboxed read │ proxy → ttyd  │
         └───────────────┴──────▲───────┴────────────────┴──────▲────────┘
                                │ tree + file messages          │ (read-only)
-                        /ws/teacher (token-gated)         ttyd :7681  (localhost)
+                        /ws/host (token-gated)            ttyd :7681  (localhost)
                                │                                │  -b /terminal
                         broadcaster (bitforge/broadcaster.py)  └─ tmux attach -r
                                │ watchdog                          │
-                          ./lesson/  +  .env  ───────────────► shared tmux session
+                          ./source/  +  .env  ───────────────► shared tmux session
 ```
 
-- **Teacher channel** (`/ws/teacher`): a single broadcaster authenticates with
-  `BITFORGE_TOKEN`. It runs a watchdog file-watcher over `lesson_dir` (and
+- **Host channel** (`/ws/host`): a single broadcaster authenticates with
+  `BITFORGE_TOKEN`. It runs a watchdog file-watcher over `source_dir` (and
   `.env`) and pushes two message types: `file` (active file content) and
   `tree` (the file-tree snapshot). It reconnects with backoff if the hub
   restarts.
-- **Student channel** (`/ws/student`): receive-only. On connect it replays the
+- **Viewer channel** (`/ws/viewer`): receive-only. On connect it replays the
   current tree and active file (late-joiner state), then streams updates.
-  Nothing a student sends can affect the host.
-- **`GET /file?path=`**: serves one lesson file as plain text, sandboxed under
-  `lesson_dir` (path-traversal → 404) and filtered by the ignore list, which
+  Nothing a viewer sends can affect the host.
+- **`GET /file?path=`**: serves one source file as plain text, sandboxed under
+  `source_dir` (path-traversal → 404) and filtered by the ignore list, which
   is re-read from `.env` on every request (hot reload).
 - **`/terminal` + `/terminal/ws`**: reverse-proxy to a read-only `ttyd`
   (started with base path `-b /terminal`, no `-W`, attaching tmux with `-r`).
-- **`GET /`**: the three-pane student page (explorer / Monaco editor / terminal
+- **`GET /`**: the three-pane viewer page (explorer / Monaco editor / terminal
   iframe). Monaco and xterm.js load from a CDN, never through the tunnel.
 
-**Read-only by construction:** `/ws/student` never mutates state, `ttyd` runs
+**Read-only by construction:** `/ws/viewer` never mutates state, `ttyd` runs
 without write mode and attaches tmux read-only, and the Monaco editor is
 `readOnly`. Only `:8000` is exposed; `ttyd` (`:7681`) and the broadcaster bind
 localhost.
@@ -50,22 +50,22 @@ localhost.
 
 ```
 bitforge/            FastAPI hub + broadcaster (the Python package)
-  server.py          hub: student page, /ws/{teacher,student}, /file, /terminal proxy
+  server.py          hub: viewer page, /ws/{host,viewer}, /file, /terminal proxy
   broadcaster.py     watchdog file-watcher → tree + active-file messages
-  tree.py            build the JSON file-tree of the lesson dir (ignore-aware)
+  tree.py            build the JSON file-tree of the source dir (ignore-aware)
   protocol.py        wire-message builders + extension→language mapping
   config.py          pydantic-settings (.env, BITFORGE_* keys)
   run.py             orchestrator: starts ttyd, ngrok, uvicorn, broadcaster
-static/index.html    the three-pane student page (explorer / Monaco / terminal)
+static/index.html    the three-pane viewer page (explorer / Monaco / terminal)
 extension/           VS Code "Live Sync" extension (streams the unsaved buffer)
-lesson/              default lesson directory broadcast to students
+source/              default source directory broadcast to viewers
 tests/               pytest suite (run with `make test`)
 .env.example         configuration template (copy to .env)
 ```
 
-The explorer heading shown to students is the **basename of the broadcast
-lesson directory** (`BITFORGE_LESSON_DIR`), so students see the name of the
-project you are teaching rather than a generic label.
+The explorer heading shown to viewers is the **basename of the broadcast
+source directory** (`BITFORGE_SOURCE_DIR`), so viewers see the name of the
+project you are sharing rather than a generic label.
 
 ## Prerequisites
 
@@ -82,21 +82,21 @@ via pydantic-settings). Copy the template and edit:
 
 | Key | Default | Purpose |
 |-----|---------|---------|
-| `BITFORGE_TOKEN` | _(required)_ | Teacher/broadcaster auth. Empty = no teacher may connect. |
+| `BITFORGE_TOKEN` | _(required)_ | Host/broadcaster auth. Empty = no host may connect. |
 | `BITFORGE_NGROK_DOMAIN` | _(blank)_ | Reserved ngrok domain; blank uses a random ephemeral URL. |
-| `BITFORGE_LESSON_DIR` | `./lesson` | Directory broadcast to students. |
-| `BITFORGE_TITLE` | `BitForge` | Student page title. |
+| `BITFORGE_SOURCE_DIR` | `./source` | Directory broadcast to viewers. |
+| `BITFORGE_TITLE` | `BitForge` | Viewer page title. |
 | `BITFORGE_IGNORE` | see `.env.example` | JSON array of patterns hidden from the tree **and** `/file`. |
 | `BITFORGE_TMUX_SESSION` | `class` | Shared tmux session name. |
 | `BITFORGE_COLS` / `BITFORGE_ROWS` | `100` / `30` | Fixed terminal size. |
 
 - **Exported env vars override `.env`** (e.g. `BITFORGE_TOKEN=… make up`), so
   CI and one-off overrides keep working.
-- **`BITFORGE_IGNORE` is hot-reloaded** — edit it mid-class and `/file` plus
+- **`BITFORGE_IGNORE` is hot-reloaded** — edit it mid-session and `/file` plus
   the broadcast tree update with no restart. Other keys are read at startup.
 - **Two different `.env` files:** the root `./.env` is your real config and is
-  git-ignored. `./lesson/.env` is *teaching content* broadcast verbatim to
-  students — keep placeholders only there; never put a real token in it.
+  git-ignored. `./source/.env` is *broadcast content* served verbatim to
+  viewers — keep placeholders only there; never put a real token in it.
 
 ## Run
 
@@ -107,41 +107,45 @@ Then attach your editor's terminal to the shared tmux session:
 
     tmux attach -t class
 
-Run uvicorn / curl / commands inside that session — students see it live.
-Edit files under `./lesson/`; saves broadcast to students. `make down` tears
+Run uvicorn / curl / commands inside that session — viewers see it live.
+Edit files under `./source/`; saves broadcast to viewers. `make down` tears
 the stack down.
 
-Students open the ngrok URL: explorer + live code + read-only terminal, all
+Viewers open the ngrok URL: explorer + live code + read-only terminal, all
 selectable/copyable.
 
 ### Follow-along typing (no save) — VS Code extension
 
-The filesystem watcher only reacts to **saves**. To have students follow your
+The filesystem watcher only reacts to **saves**. To have viewers follow your
 typing keystroke-by-keystroke, install the bundled VS Code extension in
 [`extension/`](extension/README.md): it streams the active editor's *unsaved*
-buffer to the hub over `/ws/teacher`. The server validates the path (sandbox +
-ignore) and derives the language, then fans it out to students like any other
+buffer to the hub over `/ws/host`. The server validates the path (sandbox +
+ignore) and derives the language, then fans it out to viewers like any other
 file update. The broadcaster still owns the file tree and the saved-file
 fallback, so the two run together.
 
 ### Terminal sizing and views
 
 - **You drive the terminal size.** The tmux session uses `window-size largest`,
-  so your interactive `tmux attach` sets the size and read-only student viewers
+  so your interactive `tmux attach` sets the size and read-only viewers
   never shrink or grow it (and a new viewer no longer reflows everyone's view).
   `BITFORGE_COLS`/`ROWS` are the initial size only.
-- **Students can scroll.** ttyd runs with a 10k-line scrollback buffer.
-- **Terminal-only view.** Students can hide the explorer + code panes with the
-  `terminal` toggle in the header; visiting `…/#terminal` opens straight into the
-  full-screen terminal (handy to share a terminal-focused link).
+- **Viewers can scroll.** ttyd runs with a 10k-line scrollback buffer.
+- **View mode is host-controlled.** A single `view_mode` cycles
+  `free → code → terminal`: in **free** each viewer toggles their own layout
+  (hide the explorer + code panes with the `terminal` toggle, or visit
+  `…/#terminal`); in **code** and **terminal** the host forces every viewer's
+  layout and disables their toggle. Cycle it with the `t` key in the hub's
+  terminal, or the **BitForge: Cycle View Mode** command / status-bar item in
+  the extension.
 
 ## Access control
 
-The ngrok URL is the only access control. Every student route (`/`,
-`/ws/student`, `/file`, `/terminal`) is unauthenticated by design — anyone with
+The ngrok URL is the only access control. Every viewer route (`/`,
+`/ws/viewer`, `/file`, `/terminal`) is unauthenticated by design — anyone with
 the URL can view the broadcast. `BITFORGE_TOKEN` gates only the
-teacher/broadcaster connection (`/ws/teacher`), not student access. Share the
-URL only with your class and treat it as a secret.
+host/broadcaster connection (`/ws/host`), not viewer access. Share the
+URL only with your audience and treat it as a secret.
 
 ## Test
 

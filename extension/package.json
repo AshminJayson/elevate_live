@@ -1,7 +1,7 @@
 {
   "name": "bitforge-live-sync",
   "displayName": "BitForge Live Sync",
-  "description": "Stream the active editor's unsaved buffer to the BitForge broadcast hub so students follow your typing live.",
+  "description": "Stream the active editor's unsaved buffer to the BitForge broadcast hub so viewers follow your typing live.",
   "version": "0.1.0",
   "publisher": "bitforge",
   "license": "MIT",
@@ -43,6 +43,10 @@
         "title": "BitForge: Toggle live streaming"
       },
       {
+        "command": "bitforge.cycleViewMode",
+        "title": "BitForge: Cycle View Mode"
+      },
+      {
         "command": "bitforge.reconnect",
         "title": "BitForge: Reconnect to hub"
       },
@@ -61,12 +65,12 @@
         "bitforge.serverUrl": {
           "type": "string",
           "default": "ws://127.0.0.1:8000",
-          "description": "WebSocket base URL of the BitForge hub. The extension connects to <serverUrl>/ws/teacher."
+          "description": "WebSocket base URL of the BitForge hub. The extension connects to <serverUrl>/ws/host."
         },
-        "bitforge.lessonDir": {
+        "bitforge.sourceDir": {
           "type": "string",
           "default": "",
-          "description": "Absolute path of the lesson directory broadcast to students. Blank uses the first workspace folder."
+          "description": "Absolute path of the source directory broadcast to viewers. Blank uses the first workspace folder."
         },
         "bitforge.debounceMs": {
           "type": "number",

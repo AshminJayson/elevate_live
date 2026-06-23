@@ -34,21 +34,26 @@ class Settings(BaseSettings):
     (e.g. BITFORGE_TOKEN), the project-root `.env` file, then field defaults.
 
     Fields (env key is the field name upper-cased with the BITFORGE_ prefix):
-        token (str): teacher auth token; "" means no teacher may connect.
+        token (str): host auth token; "" means no host may connect.
             Env: BITFORGE_TOKEN.
         ngrok_domain (str): reserved static ngrok domain, "" to use a random
             ephemeral URL. Env: BITFORGE_NGROK_DOMAIN.
         ngrok_authtoken (str): ngrok account credential (from the ngrok
             dashboard), passed to the ngrok agent so it can authenticate; ""
             falls back to ngrok's own config. Env: BITFORGE_NGROK_AUTHTOKEN.
-        lesson_dir (Path): absolute directory broadcast to students (resolved
-            from whatever is given). Env: BITFORGE_LESSON_DIR.
+        source_dir (Path): absolute directory broadcast to viewers (resolved
+            from whatever is given). Env: BITFORGE_SOURCE_DIR.
         title (str): page title. Env: BITFORGE_TITLE.
         ignore (list[str]): glob/dir patterns hidden from the tree and /file;
             given in .env as a JSON array. Env: BITFORGE_IGNORE.
         tmux_session (str): shared tmux session name. Env: BITFORGE_TMUX_SESSION.
         cols (int): fixed terminal width. Env: BITFORGE_COLS.
         rows (int): fixed terminal height. Env: BITFORGE_ROWS.
+        log_file (str): path (relative to the launch cwd, or absolute) for the
+            detailed append-mode log; the console stays quiet. Env:
+            BITFORGE_LOG_FILE.
+        heartbeat_seconds (int): interval between console heartbeat lines
+            reporting viewers online. Env: BITFORGE_HEARTBEAT_SECONDS.
     """
 
     model_config = SettingsConfigDict(
@@ -62,17 +67,19 @@ class Settings(BaseSettings):
     token: str = ""
     ngrok_domain: str = ""
     ngrok_authtoken: str = ""
-    lesson_dir: Path = Path("./lesson")
+    source_dir: Path = Path("./source")
     title: str = "BitForge"
     ignore: list[str] = DEFAULT_IGNORE
     tmux_session: str = "class"
     cols: int = 100
     rows: int = 30
+    log_file: str = "bitforge.log"
+    heartbeat_seconds: int = 10
 
-    @field_validator("lesson_dir")
+    @field_validator("source_dir")
     @classmethod
-    def _resolve_lesson_dir(cls, value: Path) -> Path:
-        """Resolve lesson_dir to an absolute path so the sandbox root is stable."""
+    def _resolve_source_dir(cls, value: Path) -> Path:
+        """Resolve source_dir to an absolute path so the sandbox root is stable."""
         return Path(value).resolve()
 
 
