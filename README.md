@@ -5,12 +5,13 @@ browser — no participant cap, all text copyable, viewers strictly read-only.
 
 ## Architecture
 
-All host processes sit behind a single ngrok ingress on `:8000`. A FastAPI
-server is the hub; everything else binds to localhost and is reachable only
-through it.
+All host processes sit behind a single public tunnel on `:8000` — **ngrok** by
+default, or a **cloudflared** quick tunnel when `BITFORGE_CLOUDFLARED_TOKEN` is
+set. A FastAPI server is the hub; everything else binds to localhost and is
+reachable only through it.
 
 ```
-                         ngrok (:8000, public URL)
+                  ngrok | cloudflared  (:8000, public URL)
                                    │
                           FastAPI hub  (bitforge/server.py)
         ┌───────────────┬──────────────┬────────────────┬──────────────┐
@@ -51,11 +52,13 @@ localhost.
 ```
 bitforge/            FastAPI hub + broadcaster (the Python package)
   server.py          hub: viewer page, /ws/{host,viewer}, /file, /terminal proxy
+  serve.py           runnable server entry: uvicorn with split console/file logging
   broadcaster.py     watchdog file-watcher → tree + active-file messages
   tree.py            build the JSON file-tree of the source dir (ignore-aware)
   protocol.py        wire-message builders + extension→language mapping
   config.py          pydantic-settings (.env, BITFORGE_* keys)
-  run.py             orchestrator: starts ttyd, ngrok, uvicorn, broadcaster
+  logging_setup.py   dictConfig routing uvicorn → log file, heartbeat → console
+  run.py             supervisor: starts tmux, ttyd, the server, broadcaster, tunnel
 static/index.html    the three-pane viewer page (explorer / Monaco / terminal)
 extension/           VS Code "Live Sync" extension (streams the unsaved buffer)
 source/              default source directory broadcast to viewers
@@ -69,7 +72,8 @@ project you are sharing rather than a generic label.
 
 ## Prerequisites
 
-    brew install ttyd tmux ngrok
+    brew install ttyd tmux ngrok        # ngrok is the default tunnel
+    brew install cloudflared            # only if you set BITFORGE_CLOUDFLARED_TOKEN
     uv pip install -e ".[dev]"
 
 ## Configuration
@@ -84,14 +88,22 @@ via pydantic-settings). Copy the template and edit:
 |-----|---------|---------|
 | `BITFORGE_TOKEN` | _(required)_ | Host/broadcaster auth. Empty = no host may connect. |
 | `BITFORGE_NGROK_DOMAIN` | _(blank)_ | Reserved ngrok domain; blank uses a random ephemeral URL. |
+| `BITFORGE_NGROK_AUTHTOKEN` | _(blank)_ | ngrok account credential (passed as `NGROK_AUTHTOKEN`); blank falls back to your `ngrok config`. |
+| `BITFORGE_CLOUDFLARED_TOKEN` | _(blank)_ | Any non-empty value switches the tunnel from ngrok to a cloudflared quick tunnel (value is only an on/off switch). |
 | `BITFORGE_SOURCE_DIR` | `./source` | Directory broadcast to viewers. |
 | `BITFORGE_TITLE` | `BitForge` | Viewer page title. |
 | `BITFORGE_IGNORE` | see `.env.example` | JSON array of patterns hidden from the tree **and** `/file`. |
 | `BITFORGE_TMUX_SESSION` | `class` | Shared tmux session name. |
-| `BITFORGE_COLS` / `BITFORGE_ROWS` | `100` / `30` | Fixed terminal size. |
+| `BITFORGE_COLS` / `BITFORGE_ROWS` | `100` / `30` | Initial terminal size (host's `tmux attach` drives the live size). |
+| `BITFORGE_LOG_FILE` | `bitforge.log` | Detailed append-mode log file; the console stays quiet except the heartbeat and the public URL. |
+| `BITFORGE_HEARTBEAT_SECONDS` | `10` | Interval between console "viewers online" heartbeat lines. |
 
 - **Exported env vars override `.env`** (e.g. `BITFORGE_TOKEN=… make up`), so
   CI and one-off overrides keep working.
+- **The tunnel is chosen by which credential is set:** leave
+  `BITFORGE_CLOUDFLARED_TOKEN` blank to use ngrok (the default), or set it to
+  any non-empty value to use a cloudflared quick tunnel instead. Either way the
+  public URL is printed to the console (and the log) the moment it appears.
 - **`BITFORGE_IGNORE` is hot-reloaded** — edit it mid-session and `/file` plus
   the broadcast tree update with no restart. Other keys are read at startup.
 - **Two different `.env` files:** the root `./.env` is your real config and is
@@ -111,7 +123,8 @@ Run uvicorn / curl / commands inside that session — viewers see it live.
 Edit files under `./source/`; saves broadcast to viewers. `make down` tears
 the stack down.
 
-Viewers open the ngrok URL: explorer + live code + read-only terminal, all
+`make up` prints the public tunnel URL to the console once it is ready. Viewers
+open that URL: explorer + live code + read-only terminal, all
 selectable/copyable.
 
 ### Follow-along typing (no save) — VS Code extension
@@ -141,7 +154,7 @@ fallback, so the two run together.
 
 ## Access control
 
-The ngrok URL is the only access control. Every viewer route (`/`,
+The tunnel URL is the only access control. Every viewer route (`/`,
 `/ws/viewer`, `/file`, `/terminal`) is unauthenticated by design — anyone with
 the URL can view the broadcast. `BITFORGE_TOKEN` gates only the
 host/broadcaster connection (`/ws/host`), not viewer access. Share the
@@ -155,8 +168,8 @@ URL only with your audience and treat it as a secret.
 
 | Target | Action |
 |--------|--------|
-| `make up` | Start the full stack (ttyd, ngrok, uvicorn hub, broadcaster). |
-| `make down` | Tear it all down and kill the shared tmux session. |
+| `make up` | Start the full stack (tmux, ttyd, the hub, broadcaster, and the ngrok/cloudflared tunnel). |
+| `make down` | Tear it all down (both tunnels included) and kill the shared tmux session. |
 | `make test` | Run the pytest suite. |
 
 ## License
