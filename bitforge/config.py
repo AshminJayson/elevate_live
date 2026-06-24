@@ -36,16 +36,17 @@ class Settings(BaseSettings):
     Fields (env key is the field name upper-cased with the BITFORGE_ prefix):
         token (str): host auth token; "" means no host may connect.
             Env: BITFORGE_TOKEN.
-        ngrok_domain (str): reserved static ngrok domain, "" to use a random
-            ephemeral URL. Env: BITFORGE_NGROK_DOMAIN.
-        ngrok_authtoken (str): ngrok account credential (from the ngrok
-            dashboard), passed to the ngrok agent so it can authenticate; ""
-            falls back to ngrok's own config. Env: BITFORGE_NGROK_AUTHTOKEN.
-        cloudflared_token (str): when non-empty, selects cloudflared instead of
-            ngrok as the tunnel. BitForge then runs a TryCloudflare *quick*
-            tunnel (ephemeral random *.trycloudflare.com URL), which needs no
-            credential -- so this value is only the on/off switch and is not
-            consumed. Env: BITFORGE_CLOUDFLARED_TOKEN.
+        cloudflared_token (str): credential for the cloudflared *named* tunnel,
+            copied from the Cloudflare Zero Trust dashboard. Passed verbatim to
+            `cloudflared tunnel run --token <value>`; it encodes which tunnel to
+            run and its dashboard-configured ingress (public hostname ->
+            localhost:8000). REQUIRED -- the tunnel cannot start without it.
+            Env: BITFORGE_CLOUDFLARED_TOKEN.
+        public_url (str): the public hostname mapped to the named tunnel in the
+            Cloudflare dashboard (e.g. "https://class.example.com"). cloudflared
+            never prints this for a named tunnel, so it is configured here only
+            to echo a "share this" line on startup; "" suppresses that line.
+            Env: BITFORGE_PUBLIC_URL.
         source_dir (Path): absolute directory broadcast to viewers (resolved
             from whatever is given). Env: BITFORGE_SOURCE_DIR.
         title (str): page title. Env: BITFORGE_TITLE.
@@ -70,9 +71,8 @@ class Settings(BaseSettings):
     )
 
     token: str = ""
-    ngrok_domain: str = ""
-    ngrok_authtoken: str = ""
     cloudflared_token: str = ""
+    public_url: str = ""
     source_dir: Path = Path("./source")
     title: str = "BitForge"
     ignore: list[str] = DEFAULT_IGNORE
@@ -133,4 +133,5 @@ if __name__ == "__main__":
     settings = load_settings()
     shown = settings.model_dump()
     shown["token"] = "***" if settings.token else ""  # never print the secret
+    shown["cloudflared_token"] = "***" if settings.cloudflared_token else ""
     print(shown)

@@ -5,13 +5,13 @@ browser — no participant cap, all text copyable, viewers strictly read-only.
 
 ## Architecture
 
-All host processes sit behind a single public tunnel on `:8000` — **ngrok** by
-default, or a **cloudflared** quick tunnel when `BITFORGE_CLOUDFLARED_TOKEN` is
-set. A FastAPI server is the hub; everything else binds to localhost and is
-reachable only through it.
+All host processes sit behind a single public tunnel on `:8000` — a
+**cloudflared** named tunnel driven by `BITFORGE_CLOUDFLARED_TOKEN`. A FastAPI
+server is the hub; everything else binds to localhost and is reachable only
+through it.
 
 ```
-                  ngrok | cloudflared  (:8000, public URL)
+                       cloudflared  (:8000, public URL)
                                    │
                           FastAPI hub  (bitforge/server.py)
         ┌───────────────┬──────────────┬────────────────┬──────────────┐
@@ -72,8 +72,7 @@ project you are sharing rather than a generic label.
 
 ## Prerequisites
 
-    brew install ttyd tmux ngrok        # ngrok is the default tunnel
-    brew install cloudflared            # only if you set BITFORGE_CLOUDFLARED_TOKEN
+    brew install ttyd tmux cloudflared
     uv pip install -e ".[dev]"
 
 ## Configuration
@@ -87,9 +86,8 @@ via pydantic-settings). Copy the template and edit:
 | Key | Default | Purpose |
 |-----|---------|---------|
 | `BITFORGE_TOKEN` | _(required)_ | Host/broadcaster auth. Empty = no host may connect. |
-| `BITFORGE_NGROK_DOMAIN` | _(blank)_ | Reserved ngrok domain; blank uses a random ephemeral URL. |
-| `BITFORGE_NGROK_AUTHTOKEN` | _(blank)_ | ngrok account credential (passed as `NGROK_AUTHTOKEN`); blank falls back to your `ngrok config`. |
-| `BITFORGE_CLOUDFLARED_TOKEN` | _(blank)_ | Any non-empty value switches the tunnel from ngrok to a cloudflared quick tunnel (value is only an on/off switch). |
+| `BITFORGE_CLOUDFLARED_TOKEN` | _(required)_ | cloudflared named-tunnel token from the Cloudflare dashboard; passed to `cloudflared tunnel run --token`. |
+| `BITFORGE_PUBLIC_URL` | _(blank)_ | Public hostname mapped to the tunnel in the dashboard; echoed as the "share this" line. Blank suppresses it. |
 | `BITFORGE_SOURCE_DIR` | `./source` | Directory broadcast to viewers. |
 | `BITFORGE_TITLE` | `BitForge` | Viewer page title. |
 | `BITFORGE_IGNORE` | see `.env.example` | JSON array of patterns hidden from the tree **and** `/file`. |
@@ -100,10 +98,11 @@ via pydantic-settings). Copy the template and edit:
 
 - **Exported env vars override `.env`** (e.g. `BITFORGE_TOKEN=… make up`), so
   CI and one-off overrides keep working.
-- **The tunnel is chosen by which credential is set:** leave
-  `BITFORGE_CLOUDFLARED_TOKEN` blank to use ngrok (the default), or set it to
-  any non-empty value to use a cloudflared quick tunnel instead. Either way the
-  public URL is printed to the console (and the log) the moment it appears.
+- **The tunnel is a cloudflared named tunnel.** Create it once in the Cloudflare
+  Zero Trust dashboard (Networks → Tunnels), add a **public hostname** routing
+  your domain to `http://localhost:8000`, then copy the tunnel token into
+  `BITFORGE_CLOUDFLARED_TOKEN`. Set `BITFORGE_PUBLIC_URL` to that same hostname
+  so `make up` prints it as the share URL (cloudflared itself does not emit it).
 - **`BITFORGE_IGNORE` is hot-reloaded** — edit it mid-session and `/file` plus
   the broadcast tree update with no restart. Other keys are read at startup.
 - **Two different `.env` files:** the root `./.env` is your real config and is
@@ -168,8 +167,8 @@ URL only with your audience and treat it as a secret.
 
 | Target | Action |
 |--------|--------|
-| `make up` | Start the full stack (tmux, ttyd, the hub, broadcaster, and the ngrok/cloudflared tunnel). |
-| `make down` | Tear it all down (both tunnels included) and kill the shared tmux session. |
+| `make up` | Start the full stack (tmux, ttyd, the hub, broadcaster, and the cloudflared tunnel). |
+| `make down` | Tear it all down (tunnel included) and kill the shared tmux session. |
 | `make test` | Run the pytest suite. |
 
 ## License

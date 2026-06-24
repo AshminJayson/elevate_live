@@ -1,6 +1,6 @@
 """Logging configuration: a clean host console plus a detailed .log file.
 
-The supervisor runs several noisy children (uvicorn, ttyd, ngrok, the
+The supervisor runs several noisy children (uvicorn, ttyd, cloudflared, the
 broadcaster). A host running a session does not want that firehose in their
 terminal; they want a quiet console and a file they can scroll back through.
 
