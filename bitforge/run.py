@@ -325,6 +325,7 @@ def main():
 
     print("BitForge up. Attach your editor terminal with:")
     print(f"  tmux attach -t {cfg.tmux_session}")
+    print(f"Broadcasting: {cfg.source_dir}")
     print(f"Logs: {log_path}  (console shows viewers online every {cfg.heartbeat_seconds}s)")
 
     # Hotkey: while this terminal is interactive, press 't' to cycle the viewer
