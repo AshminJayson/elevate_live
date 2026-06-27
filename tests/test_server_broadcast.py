@@ -7,7 +7,7 @@ import websockets
 from fastapi.testclient import TestClient
 
 from bitforge.config import Settings
-from bitforge.server import create_app
+from bitforge.server import _sanitize_cursor_message, create_app
 
 
 async def _recv_until(ws, msg_type, timeout=2.0):
@@ -136,6 +136,83 @@ async def test_host_file_ignored_path_dropped(tmp_path, live_server):
             await host.send(json.dumps({"type": "file", "path": "b.py", "content": "shown"}))
             msg = await _recv_until(viewer, "file")
             assert msg["path"] == "b.py" and msg["content"] == "shown"
+
+
+async def test_host_cursor_reaches_viewer(tmp_path, live_server):
+    """A host 'cursor' fans out to a viewer with coordinates coerced to ints."""
+    base = live_server(create_app(_config(tmp_path)))
+    async with websockets.connect(f"{base}/ws/viewer") as viewer:
+        await _recv_until(viewer, "tree")
+        async with websockets.connect(f"{base}/ws/host?token=secret") as host:
+            await host.send(json.dumps(
+                {"type": "cursor", "path": "main.py", "line": 4, "column": 2,
+                 "anchorLine": 4, "anchorColumn": 6}))
+            msg = await _recv_until(viewer, "cursor")
+            assert msg == {"type": "cursor", "path": "main.py", "line": 4, "column": 2,
+                           "anchorLine": 4, "anchorColumn": 6}
+
+
+async def test_host_cursor_path_traversal_dropped(tmp_path, live_server):
+    """A 'cursor' whose path escapes source_dir is dropped (never broadcast)."""
+    base = live_server(create_app(_config(tmp_path)))
+    async with websockets.connect(f"{base}/ws/viewer") as viewer:
+        await _recv_until(viewer, "tree")
+        async with websockets.connect(f"{base}/ws/host?token=secret") as host:
+            await host.send(json.dumps({"type": "cursor", "path": "../escape.py", "line": 0, "column": 0,
+                                        "anchorLine": 0, "anchorColumn": 0}))
+            await host.send(json.dumps({"type": "cursor", "path": "ok.py", "line": 1, "column": 1,
+                                        "anchorLine": 1, "anchorColumn": 1}))
+            # the traversal cursor was dropped; the first cursor the viewer sees is ok.py
+            msg = await _recv_until(viewer, "cursor")
+            assert msg["path"] == "ok.py"
+
+
+def test_sanitize_cursor_coerces_and_clamps(tmp_path):
+    """Non-int / negative coordinates are coerced to non-negative ints; path checked."""
+    config = _config(tmp_path)
+    msg = _sanitize_cursor_message(
+        config,
+        {"type": "cursor", "path": "main.py", "line": "5", "column": -3,
+         "anchorLine": None, "anchorColumn": 2},
+        config.ignore,
+    )
+    assert msg == {"type": "cursor", "path": "main.py", "line": 5, "column": 0,
+                   "anchorLine": 0, "anchorColumn": 2}
+    # path escaping the sandbox is rejected outright
+    assert _sanitize_cursor_message(config, {"path": "../x.py"}, config.ignore) is None
+
+
+def test_late_joiner_gets_current_cursor(tmp_path):
+    """A viewer joining after a cursor was set receives it in the initial burst."""
+    app = create_app(_config(tmp_path))
+    client = TestClient(app)
+    with client.websocket_connect("/ws/host?token=secret") as host:
+        host.send_json({"type": "file", "path": "main.py", "content": "x=1"})
+        host.send_json({"type": "cursor", "path": "main.py", "line": 0, "column": 1,
+                        "anchorLine": 0, "anchorColumn": 1})
+        assert _wait_until(lambda: app.state.live.current_cursor is not None)
+        with client.websocket_connect("/ws/viewer") as viewer:
+            got_tree = viewer.receive_json()
+            got_file = viewer.receive_json()
+            got_cursor = viewer.receive_json()
+            assert got_tree["type"] == "tree"
+            assert got_file["type"] == "file"
+            assert got_cursor == {"type": "cursor", "path": "main.py", "line": 0, "column": 1,
+                                  "anchorLine": 0, "anchorColumn": 1}
+
+
+def test_switching_file_resets_cursor(tmp_path):
+    """Switching the live file to a new path drops the stale stored cursor."""
+    app = create_app(_config(tmp_path))
+    client = TestClient(app)
+    with client.websocket_connect("/ws/host?token=secret") as host:
+        host.send_json({"type": "file", "path": "a.py", "content": "1"})
+        host.send_json({"type": "cursor", "path": "a.py", "line": 2, "column": 0,
+                        "anchorLine": 2, "anchorColumn": 0})
+        assert _wait_until(lambda: app.state.live.current_cursor is not None)
+        host.send_json({"type": "file", "path": "b.py", "content": "2"})
+        # the caret belonged to a.py; switching to b.py invalidates it
+        assert _wait_until(lambda: app.state.live.current_cursor is None)
 
 
 def test_viewer_connect_tracks_peak_online(tmp_path):

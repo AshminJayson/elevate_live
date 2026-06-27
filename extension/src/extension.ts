@@ -10,7 +10,13 @@ let connection: HostConnection | null = null;
 let status: vscode.StatusBarItem;
 let viewStatus: vscode.StatusBarItem;
 let debounceTimer: NodeJS.Timeout | null = null;
+let cursorTimer: NodeJS.Timeout | null = null;
 let config: BitForgeConfig | null = null;
+
+// Cursor moves should feel live, so they use a short throttle independent of the
+// (larger) file debounce — selection changes carry no buffer text, so sending
+// them often is cheap.
+const CURSOR_THROTTLE_MS = 50;
 
 /**
  * Activate the extension: wire the status bar, listeners, and commands.
@@ -22,7 +28,9 @@ let config: BitForgeConfig | null = null;
  * so the extension works in any opened project with no per-project secret file.
  * Once streaming, edits and active-editor changes feed a debounced send of the
  * UNSAVED buffer; the server re-derives language and re-checks the
- * sandbox/ignore, so the wire message is just {type,path,content}.
+ * sandbox/ignore, so the wire message is just {type,path,content}. Selection
+ * changes feed a throttled 'cursor' send (caret + selection, 0-based) so
+ * viewers also see WHERE the host is, not just what they type.
  *
  * @param ctx the extension context (provides SecretStorage; subscriptions are
  *   disposed on shutdown)
@@ -51,6 +59,11 @@ export function activate(ctx: vscode.ExtensionContext): void {
       }
     }),
     vscode.window.onDidChangeActiveTextEditor(() => scheduleStream()),
+    vscode.window.onDidChangeTextEditorSelection((e) => {
+      if (e.textEditor === vscode.window.activeTextEditor) {
+        scheduleCursor();
+      }
+    }),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("bitforge")) {
         void restart();
@@ -125,6 +138,10 @@ function stop(): void {
   if (debounceTimer) {
     clearTimeout(debounceTimer);
     debounceTimer = null;
+  }
+  if (cursorTimer) {
+    clearTimeout(cursorTimer);
+    cursorTimer = null;
   }
   if (connection) {
     connection.dispose();
@@ -230,6 +247,51 @@ function streamActive(): void {
     return;
   }
   connection.send({ type: "file", path: rel, content: editor.document.getText() });
+  // Send the caret right after the file so a freshly-shown buffer arrives with
+  // its cursor in place (selection changes alone fire scheduleCursor on their own).
+  streamCursorActive();
+}
+
+/** Throttle a cursor send by CURSOR_THROTTLE_MS (trailing edge). */
+function scheduleCursor(): void {
+  if (!config || !connection || cursorTimer) {
+    return; // a throttle is already pending; it will send the latest position
+  }
+  cursorTimer = setTimeout(() => {
+    cursorTimer = null;
+    streamCursorActive();
+  }, CURSOR_THROTTLE_MS);
+}
+
+/**
+ * Send the active editor's caret + selection as a 'cursor' message, if eligible.
+ *
+ * Uses the same eligibility gate as streamActive (active editor inside sourceDir
+ * and not ignored). Positions are 0-based (VS Code Position semantics): the
+ * caret is editor.selection.active, the selection anchor is .anchor — equal when
+ * there is no selection. Bails silently when there is no eligible editor.
+ */
+function streamCursorActive(): void {
+  if (!config || !connection) {
+    return;
+  }
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    return;
+  }
+  const rel = toSourceRelative(editor.document.uri.fsPath, config.sourceDir);
+  if (rel === null || isIgnored(rel, config.ignore)) {
+    return;
+  }
+  const { active, anchor } = editor.selection;
+  connection.send({
+    type: "cursor",
+    path: rel,
+    line: active.line,
+    column: active.character,
+    anchorLine: anchor.line,
+    anchorColumn: anchor.character,
+  });
 }
 
 /** Reflect connection state in the status bar. */

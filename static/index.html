@@ -143,7 +143,11 @@
       .node.active .glyph { opacity: 1; }
 
       /* ---------- main ---------- */
-      #main { display: grid; grid-template-rows: 1fr 38%; min-width: 0; }
+      /* minmax(0, 1fr) lets the code row shrink below its content so #code scrolls
+         on its own; a fixed, smaller terminal row stays put at the bottom. Without
+         the 0 minimum the code pane grows to fit its content and shoves the terminal
+         down, coupling the two scrolls. */
+      #main { display: grid; grid-template-rows: minmax(0, 1fr) 220px; min-width: 0; min-height: 0; }
 
       #code {
         min-height: 0; overflow: auto;
@@ -156,7 +160,8 @@
         color: var(--muted); letter-spacing: 0.04em;
       }
       /* Shiki output: own background + a line-number gutter via counters */
-      #code pre.shiki { margin: 0; padding: 0; background: transparent !important; }
+      /* position: relative anchors the cursor overlay so it scrolls with the code. */
+      #code pre.shiki { margin: 0; padding: 0; background: transparent !important; position: relative; }
       #code pre.shiki code { counter-reset: ln; display: block; }
       #code pre.shiki .line {
         display: inline-block; width: 100%; padding-right: 20px;
@@ -170,8 +175,23 @@
       }
       #code pre.shiki .line:hover::before { color: var(--ember); }
 
+      /* ---------- host cursor overlay ---------- */
+      /* One layer per repaint, injected into the <pre> so it scrolls with code.
+         pointer-events:none so it never blocks the page beneath it. */
+      .bf-overlay { position: absolute; inset: 0; pointer-events: none; }
+      .bf-caret {
+        position: absolute; width: 2px; margin-left: -1px;
+        background: var(--ember);
+        box-shadow: 0 0 6px var(--ember), 0 0 12px rgba(255, 106, 61, 0.6);
+        animation: bf-blink 1.06s steps(1, end) infinite;
+      }
+      .bf-sel { position: absolute; background: rgba(255, 106, 61, 0.22); border-radius: 2px; }
+      @keyframes bf-blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0.18; } }
+
+      #followcursor.on { border-color: var(--ember); color: var(--molten); }
+
       /* ---------- terminal ---------- */
-      #term { display: flex; flex-direction: column; border-top: 1px solid var(--seam); background: var(--forge); min-height: 0; }
+      #term { display: flex; flex-direction: column; border-top: 1px solid var(--seam); background: var(--forge); min-height: 0; overflow: hidden; }
       #term .bar {
         display: flex; align-items: center; gap: 9px;
         padding: 7px 16px; background: var(--anvil); border-bottom: 1px solid var(--seam);
@@ -197,7 +217,7 @@
         #brand { font-size: 15px; letter-spacing: 0.2em; }
       }
       @media (prefers-reduced-motion: reduce) {
-        #status .dot, #seam.flare { animation: none !important; }
+        #status .dot, #seam.flare, .bf-caret { animation: none !important; }
       }
     </style>
   </head>
@@ -209,6 +229,7 @@
         <span id="browsebar"><span>Viewing a file — off the live feed</span><button id="backlive">Back to live</button></span>
         <span id="right">
           <span id="status"><span class="dot"></span><span id="statustext">Connecting</span></span>
+          <button id="followcursor" title="Auto-scroll to follow the host's cursor">Follow</button>
           <button id="termonly" title="Toggle terminal-only view">Terminal</button>
         </span>
         <span id="seam"></span>
@@ -237,6 +258,8 @@
         "css", "markdown", "yaml", "toml", "shell",
       ]);
       let liveFile = null; // last 'file' message from the host
+      let liveCursor = null; // last 'cursor' message from the host (caret + selection)
+      let following = true; // default on: auto-scroll to keep the host caret in view
       let browsing = false; // true when viewing a clicked file (off live)
       let renderedPath = null; // path currently painted in #code (for scroll keep)
       let lastRender = null; // {content, lang, path} — replayed once Shiki is ready
@@ -290,6 +313,133 @@
         host.innerHTML = html;
         host.scrollTop = keepScroll;
         renderedPath = path;
+        positionCursor(); // repaint wiped any overlay; re-place the caret
+      }
+
+      // ---- host cursor overlay ----
+      // Collect a line span's descendant text nodes in document order, so a column
+      // can be located across Shiki's per-token spans (or plainPre's single node).
+      function textNodesOf(lineSpan) {
+        const walker = document.createTreeWalker(lineSpan, NodeFilter.SHOW_TEXT);
+        const nodes = [];
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n);
+        return nodes;
+      }
+      // Map character index i to [textNode, offsetWithinNode] across the line's nodes.
+      function locate(nodes, i) {
+        for (const node of nodes) {
+          if (i < node.length) return [node, i];
+          i -= node.length;
+        }
+        const last = nodes[nodes.length - 1];
+        return [last, last.length];
+      }
+      // Measure the text-start x (constant across lines, after the gutter) and one
+      // character's width from the first non-empty line; null if no text anywhere.
+      // Used only as a fallback for empty lines / columns past end of text.
+      function measureMetrics(lines, preLeft) {
+        for (const line of lines) {
+          const nodes = textNodesOf(line);
+          if (nodes.length && nodes[0].length) {
+            const r = document.createRange();
+            r.setStart(nodes[0], 0);
+            r.setEnd(nodes[0], 1);
+            const rect = r.getBoundingClientRect();
+            return { textStartX: rect.left - preLeft, charWidth: rect.width };
+          }
+        }
+        return null;
+      }
+      // x (relative to the <pre>) of `column` on `lineSpan`. Uses a Range over the
+      // exact character so tabs and syntax tokens land precisely; clamps a column
+      // past end of text to the line end, and falls back to metrics for empty lines.
+      function columnX(lineSpan, column, preLeft, metrics) {
+        const nodes = textNodesOf(lineSpan);
+        const total = nodes.reduce((s, n) => s + n.length, 0);
+        if (total === 0) return metrics ? metrics.textStartX + column * metrics.charWidth : 0;
+        const col = Math.min(Math.max(column, 0), total);
+        const range = document.createRange();
+        if (col < total) {
+          const [node, off] = locate(nodes, col);
+          range.setStart(node, off);
+          range.setEnd(node, off + 1);
+          return range.getBoundingClientRect().left - preLeft; // left edge of char at col
+        }
+        const [node, off] = locate(nodes, col - 1);
+        range.setStart(node, off);
+        range.setEnd(node, off + 1);
+        return range.getBoundingClientRect().right - preLeft; // right edge of last char
+      }
+      // Normalize the cursor message's two points into a forward-ordered selection.
+      function orderedSelection(c) {
+        const a = [c.anchorLine, c.anchorColumn];
+        const b = [c.line, c.column];
+        const forward = a[0] < b[0] || (a[0] === b[0] && a[1] <= b[1]);
+        const [s, e] = forward ? [a, b] : [b, a];
+        return {
+          startLine: s[0], startCol: s[1], endLine: e[0], endCol: e[1],
+          empty: s[0] === e[0] && s[1] === e[1],
+        };
+      }
+      // Scroll #code (the scroll container) so the caret is in view, with a margin.
+      function scrollCaretIntoView(caret) {
+        const code = el("code");
+        const cRect = code.getBoundingClientRect();
+        const kRect = caret.getBoundingClientRect();
+        const margin = 60;
+        if (kRect.top < cRect.top + margin) code.scrollTop -= cRect.top + margin - kRect.top;
+        else if (kRect.bottom > cRect.bottom - margin) code.scrollTop += kRect.bottom - (cRect.bottom - margin);
+      }
+      /**
+       * Paint the host's caret (and selection band) over the live file.
+       *
+       * Clears any prior overlay, then bails unless there is a cursor for the file
+       * currently shown and the viewer is on the live feed (not browsing off-feed).
+       * Builds one fresh .bf-overlay inside the <pre> holding selection bands and a
+       * blinking caret, positioned with columnX. Auto-scrolls only when Follow is on.
+       */
+      function positionCursor() {
+        document.querySelectorAll("#code .bf-overlay").forEach((n) => n.remove());
+        if (!liveCursor || browsing || liveCursor.path !== renderedPath) return;
+        const pre = document.querySelector("#code pre.shiki");
+        const code = pre && pre.querySelector("code");
+        const lines = code ? code.querySelectorAll(":scope > .line") : [];
+        if (!lines.length) return;
+        const preLeft = pre.getBoundingClientRect().left;
+        const metrics = measureMetrics(lines, preLeft);
+        const lineAt = (i) => lines[Math.min(Math.max(i, 0), lines.length - 1)];
+
+        const overlay = document.createElement("div");
+        overlay.className = "bf-overlay";
+
+        const sel = orderedSelection(liveCursor);
+        if (!sel.empty) {
+          for (let ln = sel.startLine; ln <= sel.endLine && ln < lines.length; ln++) {
+            const span = lineAt(ln);
+            const fromCol = ln === sel.startLine ? sel.startCol : 0;
+            const toCol = ln === sel.endLine ? sel.endCol : Infinity;
+            const left = columnX(span, fromCol, preLeft, metrics);
+            const right = columnX(span, toCol, preLeft, metrics);
+            const band = document.createElement("div");
+            band.className = "bf-sel";
+            band.style.left = left + "px";
+            band.style.width = Math.max(right - left, 2) + "px";
+            band.style.top = span.offsetTop + "px";
+            band.style.height = span.offsetHeight + "px";
+            overlay.appendChild(band);
+          }
+        }
+
+        const caretSpan = lineAt(liveCursor.line);
+        const caret = document.createElement("div");
+        caret.className = "bf-caret";
+        caret.style.left = columnX(caretSpan, liveCursor.column, preLeft, metrics) + "px";
+        caret.style.top = caretSpan.offsetTop + "px";
+        caret.style.height = caretSpan.offsetHeight + "px";
+        overlay.appendChild(caret);
+
+        pre.appendChild(overlay);
+        if (following) scrollCaretIntoView(caret);
       }
 
       function showFile(msg) {
@@ -337,6 +487,22 @@
         if (liveFile) showFile(liveFile);
       };
 
+      // ---- follow the host cursor ----
+      // Follow keeps the caret in view on every cursor update until toggled off;
+      // a no-op when no caret is painted. On by default.
+      el("followcursor").onclick = () => {
+        following = !following;
+        reflectFollow();
+        if (following) positionCursor(); // snap to the caret the moment it is enabled
+      };
+      // Reflect the follow state in the button; called at boot so the default-on
+      // state is shown without a click.
+      function reflectFollow() {
+        el("followcursor").classList.toggle("on", following);
+        el("followcursor").textContent = following ? "Following" : "Follow";
+      }
+      reflectFollow();
+
       // ---- live status + the heat-seam signature ----
       function setStatus(state, text) {
         el("status").className = state; // "connecting" | "live" | "reconnecting"
@@ -368,6 +534,9 @@
             liveFile = msg;
             flareSeam();
             if (!browsing) showFile(msg);
+          } else if (msg.type === "cursor") {
+            liveCursor = msg;
+            if (!browsing) positionCursor();
           } else if (msg.type === "view_mode") {
             applyViewMode(msg.mode);
           }

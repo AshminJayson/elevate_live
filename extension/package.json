@@ -2,7 +2,7 @@
   "name": "bitforge-live-sync",
   "displayName": "BitForge Live Sync",
   "description": "Stream the active editor's unsaved buffer to the BitForge broadcast hub so viewers follow your typing live.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "bitforge",
   "license": "MIT",
   "author": {

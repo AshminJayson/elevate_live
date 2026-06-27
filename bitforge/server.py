@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from starlette.websockets import WebSocketState
 
 from bitforge.config import is_ignored, load_settings
-from bitforge.protocol import file_message
+from bitforge.protocol import cursor_message, file_message
 
 # Two audiences (see bitforge.logging_setup): _console carries the periodic
 # heartbeat to the host's terminal (and the file); _events records per-
@@ -45,6 +45,10 @@ class State:
         current_root (str): display name of the broadcast project root (source
             dir basename), shown as the explorer heading; "" until first tree.
         current_file (dict | None): latest 'file' wire message, or None.
+        current_cursor (dict | None): latest sanitized 'cursor' wire message
+            (the host's caret/selection in current_file), or None. Replayed to
+            late-joiners; reset to None when current_file switches to a new path
+            so a stale caret is never pinned to the wrong file.
         viewers (set[WebSocket]): connected viewer sockets (code/explorer
             viewers on /ws/viewer); len() is the live "viewers online" count.
         hosts (set[WebSocket]): connected host sockets (/ws/host); the view-mode
@@ -64,6 +68,7 @@ class State:
         self.current_tree = []
         self.current_root = ""
         self.current_file = None
+        self.current_cursor = None
         self.viewers = set()
         self.hosts = set()
         self.view_mode = "free"
@@ -72,23 +77,49 @@ class State:
         self.started_at = time.monotonic()
 
 
-def _sanitize_file_message(config, message, ignore):
-    """Validate and normalize an incoming host 'file' message; None if rejected.
+def _safe_rel(config, path, ignore):
+    """Return a sandbox-safe POSIX-relative path for a host message, or None.
 
     The host channel is multi-client (the filesystem broadcaster and the VS
     Code extension both push here), so the server is the single source of truth
-    for path safety and language — never trusting a client to have filtered.
+    for path safety — never trusting a client to have filtered.
 
     Algorithm:
-        1. Read message["path"]; reject if it is not a string.
+        1. Reject if `path` is not a string.
         2. Resolve source_dir/path and reject any path that escapes source_dir
            (path traversal), mirroring the /file endpoint. Existence is NOT
            required: the buffer may be unsaved, so the file need not be on disk.
-        3. Reject paths matching the ignore list (captured once per connection by
-           the caller; see the host handler).
-        4. Return a freshly built file message via protocol.file_message, which
-           re-derives 'language' from the sandbox-relative path — so clients need
-           not send (or be trusted for) the language field.
+        3. Reject paths matching the ignore list.
+
+    Args:
+        config (Settings): resolved configuration (for source_dir).
+        path (str): client-supplied path to validate.
+        ignore (list[str]): ignore patterns to enforce.
+
+    Returns:
+        str | None: the sandbox-relative POSIX path, or None if `path` is not a
+            string, escapes source_dir, or is ignored.
+    """
+    if not isinstance(path, str):
+        return None
+    base = config.source_dir.resolve()
+    target = (base / path).resolve()
+    rel = os.path.relpath(target, base)
+    if rel.startswith("..") or os.path.isabs(rel):
+        return None
+    rel_posix = Path(rel).as_posix()
+    if is_ignored(rel_posix, ignore):
+        return None
+    return rel_posix
+
+
+def _sanitize_file_message(config, message, ignore):
+    """Validate and normalize an incoming host 'file' message; None if rejected.
+
+    Validates the path via _safe_rel, then returns a freshly built file message
+    via protocol.file_message, which re-derives 'language' from the sandbox-
+    relative path — so clients need not send (or be trusted for) the language
+    field.
 
     Args:
         config (Settings): resolved configuration (for source_dir).
@@ -101,18 +132,55 @@ def _sanitize_file_message(config, message, ignore):
             message, or None if the path is missing, escapes source_dir, or is
             ignored.
     """
-    path = message.get("path")
-    if not isinstance(path, str):
-        return None
-    base = config.source_dir.resolve()
-    target = (base / path).resolve()
-    rel = os.path.relpath(target, base)
-    if rel.startswith("..") or os.path.isabs(rel):
-        return None
-    rel_posix = Path(rel).as_posix()
-    if is_ignored(rel_posix, ignore):
+    rel_posix = _safe_rel(config, message.get("path"), ignore)
+    if rel_posix is None:
         return None
     return file_message(rel_posix, message.get("content", ""))
+
+
+def _coerce_nonneg_int(value):
+    """Coerce a client-supplied coordinate to a non-negative int; 0 on failure.
+
+    Args:
+        value: any JSON-decoded value (expected int).
+
+    Returns:
+        int: max(0, int(value)), or 0 if value is not int-coercible.
+    """
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _sanitize_cursor_message(config, message, ignore):
+    """Validate and normalize an incoming host 'cursor' message; None if rejected.
+
+    Validates the path via _safe_rel (same sandbox + ignore defense as files),
+    then coerces every coordinate to a non-negative int (never trusting client
+    fields) and returns a freshly built cursor message via
+    protocol.cursor_message.
+
+    Args:
+        config (Settings): resolved configuration (for source_dir).
+        message (dict): incoming wire message; expects "path" (str) and the
+            0-based ints "line", "column", "anchorLine", "anchorColumn".
+        ignore (list[str]): ignore patterns to enforce.
+
+    Returns:
+        dict | None: a normalized cursor message (see protocol.cursor_message),
+            or None if the path is missing, escapes source_dir, or is ignored.
+    """
+    rel_posix = _safe_rel(config, message.get("path"), ignore)
+    if rel_posix is None:
+        return None
+    return cursor_message(
+        rel_posix,
+        _coerce_nonneg_int(message.get("line")),
+        _coerce_nonneg_int(message.get("column")),
+        _coerce_nonneg_int(message.get("anchorLine")),
+        _coerce_nonneg_int(message.get("anchorColumn")),
+    )
 
 
 def _log_connection(state, event):
@@ -247,7 +315,10 @@ def create_app(config=None):
         then loops receiving JSON. 'tree' messages update the tree and fan out
         as-is. 'file' messages are validated and normalized via
         _sanitize_file_message (sandbox + ignore + server-derived language);
-        rejected files are dropped silently (not stored, not broadcast). A
+        rejected files are dropped silently (not stored, not broadcast). 'cursor'
+        messages are sanitized the same way (sandbox + ignore + non-negative
+        coordinates) and, if accepted, stored as state.current_cursor and fanned
+        out; switching to a different file resets the stored cursor. A
         'control' message {"action":"cycle_view_mode"} cycles the shared view
         mode (see advance_view_mode). The socket is tracked in state.hosts (and
         sent the current view mode on connect) so it receives view-mode echoes.
@@ -295,7 +366,17 @@ def create_app(config=None):
                     sanitized = _sanitize_file_message(config, message, config.ignore)
                     if sanitized is None:
                         continue  # drop unsafe/ignored paths; never store or broadcast
+                    # A switch to a different file invalidates the stored caret;
+                    # drop it so a late-joiner never gets a caret on the wrong file.
+                    if state.current_file is None or state.current_file["path"] != sanitized["path"]:
+                        state.current_cursor = None
                     state.current_file = sanitized
+                    await _broadcast(state, sanitized)
+                elif message.get("type") == "cursor":
+                    sanitized = _sanitize_cursor_message(config, message, config.ignore)
+                    if sanitized is None:
+                        continue  # drop unsafe/ignored paths; never store or broadcast
+                    state.current_cursor = sanitized
                     await _broadcast(state, sanitized)
                 elif message.get("type") == "control" and message.get("action") == "cycle_view_mode":
                     await advance_view_mode(state)
@@ -324,6 +405,10 @@ def create_app(config=None):
         await ws.send_json({"type": "tree", "tree": state.current_tree, "root": state.current_root})
         if state.current_file is not None:
             await ws.send_json(state.current_file)
+        # Late-joiner caret: replay the host's current cursor so it appears at
+        # once (after the file it belongs to, which it references by path).
+        if state.current_cursor is not None:
+            await ws.send_json(state.current_cursor)
         # Late-joiner view mode: a viewer joining mid-lock lands in the right layout.
         await ws.send_json({"type": "view_mode", "mode": state.view_mode})
         try:
